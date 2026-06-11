@@ -134,7 +134,7 @@ CORRECT_FILE_STRUCTURE=(
 #   $MISSING | $INVALID | $VALID | $NOT_CHECKED
 #########################################
 declare -A FILE_STRUCTURE_STATUS
-for key in "${CORRECT_FILE_STRUCTURE_KEYS[@]}"; do
+for key in "${!CORRECT_FILE_STRUCTURE[@]}"; do
     FILE_STRUCTURE_STATUS["$key"]="$NOT_CHECKED"
 done
 
@@ -161,6 +161,25 @@ REQUIRED_COMMANDS=(
     ["colcon"]="$NOT_CHECKED"
 )
 
+#######################################
+# Required apt packages for LoonE to function
+# Globals:
+# NOT_CHECKED
+# Format:
+#   "command"=present?"
+# Dictionary value types:
+#  $VALID | $MISSING | $NOT_CHECKED
+#########################################
+declare -A REQUIRED_APT_PACKAGES
+REQUIRED_APT_PACKAGES=(
+    ["build-essential"]="$NOT_CHECKED"
+    ["cmake"]="$NOT_CHECKED"
+    ["python3-dev"]="$NOT_CHECKED"
+    ["python3-pip"]="$NOT_CHECKED"
+    ["python3-rosdep"]="$NOT_CHECKED"
+    ["python3-colcon-common-extensions"]="$NOT_CHECKED"
+)
+
 # <<< Report constants
 
 # <<< Script Constants
@@ -169,6 +188,7 @@ REQUIRED_COMMANDS=(
 SHIFT_ARGS_BY=0 # Used for shifting arguements
 VERBOSE=0 # Verbose mode
 DRY_RUN=0 # Dry running (debug)
+IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what they are doing
 
 # <<< Script Arguments
 
@@ -519,6 +539,32 @@ check_variables(){
 }
 
 ########################################
+# Checks APT packages for LoonE to function
+# Uses the REQUIRED_APT_PACKAGES array to determine what should be installed
+# Globals:
+#   REQUIRED_APT_PACKAGES
+# Arguments:
+# none
+# Outputs:
+# modified REQUIRED_APT_PACKAGES with missing and invalid status
+########################################
+check_apt_packages(){
+    log "Checking for required apt packages..."
+    local missing_packages=()
+    for pkg in "${!REQUIRED_APT_PACKAGES[@]}"; do
+        log "Checking package $BLUE $pkg $PRIMARY..."
+        if dpkg -s "$pkg" >/dev/null 2>&1; then
+            log "Package $GREEN $pkg $PRIMARY is installed."
+            REQUIRED_APT_PACKAGES["$pkg"]="$VALID"
+        else
+            log "Package $RED $pkg $PRIMARY is missing."
+            REQUIRED_APT_PACKAGES["$pkg"]="$MISSING"
+            missing_packages+=("$pkg")
+        fi
+    done
+}
+
+########################################
 # Checks the $WORKSPACE_DIR for missing directories or files
 # Uses the FILE_STRUCTURE_MAP to determine what should be there and if it is a file or directory
 # Globals:
@@ -565,6 +611,7 @@ check_file_structure(){
 diagnose_problems(){
     check_variables
     check_file_structure
+    check_apt_packages
     check_commands
     check_zed_daemon
     # Print summary of results
@@ -607,6 +654,18 @@ diagnose_problems(){
             echo "  $RED $cmd: Missing $PRIMARY"
         else
             echo "  $YELLOW $cmd: Not Checked $PRIMARY"
+        fi
+    done
+
+    echo "${BOLD}APT Packages:${PRIMARY}"
+    for pkg in "${!REQUIRED_APT_PACKAGES[@]}"; do
+        local status="${REQUIRED_APT_PACKAGES[$pkg]}"
+        if [[ "$status" -eq "$VALID" ]]; then
+            echo "  $GREEN $pkg: Installed $PRIMARY"
+        elif [[ "$status" -eq "$MISSING" ]]; then
+            echo "  $RED $pkg: Missing $PRIMARY"
+        else
+            echo "  $YELLOW $pkg: Not Checked $PRIMARY"
         fi
     done
 }
@@ -672,8 +731,8 @@ in_container() {
 ################################
 build_colcon(){
     local service="${1:-loone}"
-    if [[ $(in_container) == 0 ]]; then
-        log "Running build commands for container environment..."
+    if [[ $IGNORE_DEFENSIVE_CHECKS -eq 1 ]] || [[ $(in_container) == 0 ]]; then
+        echo "Running build commands for $service service..."
 
         if [[ "$service" == "loone" ]]; then
             log "Running build commands for LoonE service..."
@@ -735,6 +794,7 @@ Options:
     -v, --verbose   Enable verbose mode
     --dry-run       Do not execute changes
     --version       print version
+    --ignore-defensive-checks  Skip defensive checks (use with caution!) Allows building in unsupported environments 
 EOF
 }
 
@@ -761,6 +821,12 @@ parse_runtime_arguments() {
             --dry-run)
                 DRY_RUN=1
                 log All bark no bite mode running!
+                SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
+                shift
+                ;;
+            -i|--ignore-defensive-checks)
+                IGNORE_DEFENSIVE_CHECKS=1
+                log "Ignoring defensive checks! Make sure you know what you are doing!"
                 SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
                 shift
                 ;;

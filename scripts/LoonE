@@ -652,7 +652,7 @@ parse_arguments() {
                 echo "This is where docker-compose.yaml and related files are located."
                 echo "Primary volume locations for the containers are also located here, so this is a good place to be!"
                 echo "Note: This does not start a shell in the workspace, it just changes the current working directory for this script to the workspace directory."
-                cd "$LOONE_WORKSPACE_DIR"
+                run "cd $LOONE_WORKSPACE_DIR"
                 return 0
                 ;;
              --verbose)

@@ -11,3 +11,4 @@ Options:
     -v, --verbose   Enable verbose mode
     --dry-run       Do not execute changes
     --version       print version
+    --ignore-defensive-checks  Skip defensive checks (use with caution!) Allows building in unsupported environments 
