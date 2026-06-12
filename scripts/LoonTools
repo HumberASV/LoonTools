@@ -100,6 +100,18 @@ required_apt_packages_list=(
     "less"
     "curl"
     "gnupg2"
+    "ros-humble-compressed-image-transport"
+    "nlohmann-json3-dev"
+    "libgeographic-dev"
+    "python3-mypy"
+    "python3-pytest-mock"
+    "ros-humble-iceoryx-binding-c"
+    "ros-humble-cyclonedds"
+    "ros-humble-theora-image-transport"
+    "clang-format"
+    "lm-sensors"
+    "python3-ntplib"
+    "ros-humble-launch-pytest"
 )
 
 ################################
@@ -815,7 +827,7 @@ build_colcon(){
             log "Running build commands for LoonE service..."
             # it's the same rn but we might want different build args for the zed workspace in the future
             # so keeping it separate for now
-            run /bin/bash -c "source /opt/ros/humble/setup.bash && \
+            run '/bin/bash -c source /opt/ros/humble/setup.bash && \
             apt-get update && \
             rosdep update && \
             rosdep install --from-paths src --ignore-src -r -y && \
@@ -829,10 +841,10 @@ build_colcon(){
                 -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
                 -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
                 --no-warn-unused-cli && \
-            rm -rf /var/lib/apt/lists/*"
+            rm -rf /var/lib/apt/lists/*'
         elif [[ "$service" == "zed" ]]; then
             log "Running build commands for ZedX service..."
-            run /bin/bash -c "source /opt/ros/humble/setup.bash && \
+            run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
             apt-get update && \
             rosdep update && \
             rosdep install --from-paths src --ignore-src -r -y && \
@@ -846,7 +858,7 @@ build_colcon(){
                 -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
                 -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
                 --no-warn-unused-cli && \
-            rm -rf /var/lib/apt/lists/*"
+            rm -rf /var/lib/apt/lists/*"'
         else # not a valid service
             error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
             exit 1
@@ -940,7 +952,7 @@ parse_functional_arguments(){
             exit 0
             ;;
             -c|--colcon)
-            build_colcon
+            build_colcon "$2"
             exit 0
             ;;
             *)
