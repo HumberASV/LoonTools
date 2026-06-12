@@ -857,7 +857,7 @@ build_colcon(){
                 -DZED_SDK_ROOT=/usr/local/zed \
                 -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
                 -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli && \
+                --no-warn-unused-cli --packages-skip zed_debug && \
             rm -rf /var/lib/apt/lists/*"'
         else # not a valid service
             error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
