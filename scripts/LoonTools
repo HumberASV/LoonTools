@@ -64,6 +64,44 @@ INVALID=1
 VALID=2
 NOT_CHECKED=3
 
+# List of required commands for LoonE to function
+required_commands_list=(
+    "apt-get"
+    "ca-certificates"
+    "curl"
+    "gnupg"
+    "gpg"
+    "lsb-release"
+    "wget"
+    "git"
+    "nvidia-smi"
+    "colcon"
+)
+
+# List of required apt packages for LoonE to function
+required_apt_packages_list=(
+    "build-essential"
+    "cmake"
+    "python3-dev"
+    "python3-pip"
+    "python3-rosdep"
+    "python3-colcon-common-extensions"
+    "docker-ce"
+    "docker-ce-cli"
+    "containerd.io"
+    "docker-buildx-plugin"
+    "docker-compose-plugin"
+    "python3-rosdep"
+    "python3-rosinstall-generator"
+    "python3-vcstool"
+    "python3-rosinstall"
+    "zstd"
+    "wget"
+    "less"
+    "curl"
+    "gnupg2"
+)
+
 #######################################
 # Dictionary to check for in environment
 # Globals:
@@ -83,22 +121,9 @@ REQUIRED_VARIABLES=(
     ["L4T_VERSION"]="36.4.2"
     ["ROS_DISTRO"]="humble"
     ["XAUTHORITY"]="/home/$USER/.Xauthority"
+    ["DISPLAY"]=":0"
+    ["COLCON_PREFIX_PATH"]=null
 )
-
-#################################
-# Dictionary to track variable status
-# Globals:
-# REQUIRED_VARIABLES
-# NOT_CHECKED
-# Format:
-#   "variable"="status"
-# Dictionary value types:
-#   $MISSING | $INVALID | $VALID | $NOT_CHECKED
-#################################
-declare -a REQUIRED_VARIABLE_STATUS
-for key in "${!REQUIRED_VARIABLES[@]}"; do
-    REQUIRED_VARIABLE_STATUS["$key"]="$NOT_CHECKED"
-done
 
 #######################################
 # Dictionary to check for in file structure
@@ -123,6 +148,19 @@ CORRECT_FILE_STRUCTURE=(
     ["$WORKSPACE_DIR/docker/compose.yaml"]="$FILE_TYPE"
 )
 
+#################################
+# Dictionary to track variable status
+# Globals:
+# REQUIRED_VARIABLES
+# NOT_CHECKED
+# Format:
+#   "variable"="status"
+# Dictionary value types:
+#   $MISSING | $INVALID | $VALID | $NOT_CHECKED
+#################################
+declare -a REQUIRED_VARIABLE_STATUS
+init_status_map "$NOT_CHECKED" REQUIRED_VARIABLE_STATUS "${!REQUIRED_VARIABLES[@]}"
+
 ########################################
 # Dictionary to track file structure status
 # Globals:
@@ -134,9 +172,7 @@ CORRECT_FILE_STRUCTURE=(
 #   $MISSING | $INVALID | $VALID | $NOT_CHECKED
 #########################################
 declare -A FILE_STRUCTURE_STATUS
-for key in "${!CORRECT_FILE_STRUCTURE[@]}"; do
-    FILE_STRUCTURE_STATUS["$key"]="$NOT_CHECKED"
-done
+init_status_map "$NOT_CHECKED" FILE_STRUCTURE_STATUS "${!CORRECT_FILE_STRUCTURE[@]}"
 
 #######################################
 # Required commands for LoonE to function
@@ -148,18 +184,7 @@ done
 #  $VALID | $MISSING | $NOT_CHECKED
 #########################################
 declare -A required_commands
-REQUIRED_COMMANDS=(
-    ["apt-get"]="$NOT_CHECKED"
-    ["ca-certificates"]="$NOT_CHECKED"
-    ["curl"]="$NOT_CHECKED"
-    ["gnupg"]="$NOT_CHECKED"
-    ["gpg"]="$NOT_CHECKED"
-    ["lsb-release"]="$NOT_CHECKED"
-    ["wget"]="$NOT_CHECKED"
-    ["git"]="$NOT_CHECKED"
-    ["nvidia-smi"]="$NOT_CHECKED"
-    ["colcon"]="$NOT_CHECKED"
-)
+init_status_map "$NOT_CHECKED" required_commands "${required_commands_list[@]}"
 
 #######################################
 # Required apt packages for LoonE to function
@@ -171,14 +196,7 @@ REQUIRED_COMMANDS=(
 #  $VALID | $MISSING | $NOT_CHECKED
 #########################################
 declare -A REQUIRED_APT_PACKAGES
-REQUIRED_APT_PACKAGES=(
-    ["build-essential"]="$NOT_CHECKED"
-    ["cmake"]="$NOT_CHECKED"
-    ["python3-dev"]="$NOT_CHECKED"
-    ["python3-pip"]="$NOT_CHECKED"
-    ["python3-rosdep"]="$NOT_CHECKED"
-    ["python3-colcon-common-extensions"]="$NOT_CHECKED"
-)
+init_status_map "$NOT_CHECKED" REQUIRED_APT_PACKAGES "${required_apt_packages_list[@]}"
 
 # <<< Report constants
 
@@ -193,6 +211,62 @@ IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what
 # <<< Script Arguments
 
 # <<< Utility Functions
+
+################################
+# Initializes a status map with a given status for a list of keys
+# Globals:
+# NONE
+# Arguments:
+#   $1 - the status to set for each key
+#   $2 - the name of the associative array to initialize (passed by name)
+#   $3... - the list of keys to initialize in the map
+# Returns:
+# Nothing, modifies the associative array passed by name
+###############################
+init_status_map() {
+    local status="$1"
+    shift
+
+    declare -n map="$1"
+    shift
+
+    for key in "$@"; do
+        map["$key"]="$status"
+    done
+}
+
+
+##################################
+# Prints the status of a map with color coded symbols
+# Globals:
+# NOT_CHECKED
+# MISSING
+# INVALID
+# VALID
+# BLUE
+# RED
+# ORANGE
+# GREEN
+# PRIMARY
+# Arguments:
+#   $1 - the name of the associative array to print (passed by name)
+# Returns:
+# Nothing, prints the status of each key in the map to stdout
+##################################
+print_map_status() {
+    declare -A status_symbols=(
+        [$NOT_CHECKED]="${BLUE}?${PRIMARY}"
+        [$MISSING]="${RED}✗${PRIMARY}"
+        [$INVALID]="${ORANGE}!${PRIMARY}"
+        [$VALID]="${GREEN}✓${PRIMARY}"
+    )
+
+    local -n map="$1"
+    for key in "${!map[@]}"; do
+        printf "%-30s %s\n" "$key" "${status_symbols[${map[$key]}]}"
+    done
+}
+
 
 #######################################
 # Logs to stdout if $VERBOSE true
