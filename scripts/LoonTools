@@ -112,6 +112,9 @@ required_apt_packages_list=(
     "lm-sensors"
     "python3-ntplib"
     "ros-humble-launch-pytest"
+    "ros-humble-nav2-rviz-plugins"
+    "nvidia-jetpack"
+    "pva-allow-2"
 )
 
 ################################
@@ -158,6 +161,7 @@ REQUIRED_VARIABLES=(
     ["XAUTHORITY"]="/home/$USER/.Xauthority"
     ["DISPLAY"]=":0"
     ["COLCON_PREFIX_PATH"]=null
+    ["CYCLONEDDS_URI"]="file:///opt/cyclonedds.xml"
 )
 
 #######################################
