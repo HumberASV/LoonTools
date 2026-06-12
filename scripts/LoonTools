@@ -140,7 +140,7 @@ REQUIRED_VARIABLES=(
     ["RMW_IMPLEMENTATION"]="rmw_cyclonedds_cpp"
     ["ROS_DOMAIN_ID"]="0"
     ["ROS_LOCALHOST_ONLY"]="0"
-    ["ZED_SDK_VERSION"]="5.1.0"
+    ["ZED_SDK_VERSION"]="5.2.3"
     ["L4T_VERSION"]="36.4.2"
     ["ROS_DISTRO"]="humble"
     ["XAUTHORITY"]="/home/$USER/.Xauthority"
@@ -181,7 +181,7 @@ CORRECT_FILE_STRUCTURE=(
 # Dictionary value types:
 #   $MISSING | $INVALID | $VALID | $NOT_CHECKED
 #################################
-declare -a REQUIRED_VARIABLE_STATUS
+declare -A REQUIRED_VARIABLE_STATUS
 init_status_map "$NOT_CHECKED" REQUIRED_VARIABLE_STATUS "${!REQUIRED_VARIABLES[@]}"
 
 ########################################
@@ -603,13 +603,14 @@ check_variables(){
 
         if [[ "$expected_value" == "$actual_value" ]]; then
             log "Variable $GREEN $var $PRIMARY is valid."
-            REQUIRED_VARIABLE_STATUS["$var"]="$VALID"
+            
+            REQUIRED_VARIABLE_STATUS[$var]="$VALID"
         elif [[ -z "$actual_value" ]]; then
             log "Variable $RED $var $PRIMARY is missing."
-            REQUIRED_VARIABLE_STATUS["$var"]="$MISSING"
+            REQUIRED_VARIABLE_STATUS[$var]="$MISSING"
         else
             log "Variable $ORANGE $var $PRIMARY is invalid. Actual value: $RED $actual_value $PRIMARY"
-            REQUIRED_VARIABLE_STATUS["$var"]="$INVALID"
+            REQUIRED_VARIABLE_STATUS[$var]="$INVALID"
         fi
     done
 }
