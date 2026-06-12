@@ -41,7 +41,7 @@ LOONE_SOURCE=$SCRIPTS_SOURCE/LoonE
 ASSETS_DIR="./src/assets"
 WORKSPACE_DIR="$HOME/LoonE_ws"
 GROUP_NAME="loon-env-users"
-
+LOCKFILE="/tmp/loon-env-install.lock"
 
 # Colors for stdout
 PRIMARY=$(tput sgr0)
@@ -101,6 +101,29 @@ required_apt_packages_list=(
     "curl"
     "gnupg2"
 )
+
+################################
+# Initializes a status map with a given status for a list of keys
+# Globals:
+# NONE
+# Arguments:
+#   $1 - the status to set for each key
+#   $2 - the name of the associative array to initialize (passed by name)
+#   $3... - the list of keys to initialize in the map
+# Returns:
+# Nothing, modifies the associative array passed by name
+###############################
+init_status_map() {
+    local status="$1"
+    shift
+
+    declare -n map="$1"
+    shift
+
+    for key in "$@"; do
+        map["$key"]="$status"
+    done
+}
 
 #######################################
 # Dictionary to check for in environment
@@ -203,7 +226,7 @@ init_status_map "$NOT_CHECKED" REQUIRED_APT_PACKAGES "${required_apt_packages_li
 # <<< Script Constants
 
 # Script Arguments >>>
-SHIFT_ARGS_BY=0 # Used for shifting arguements
+SHIFT_ARGS_BY=1 # Used for shifting arguements
 VERBOSE=0 # Verbose mode
 DRY_RUN=0 # Dry running (debug)
 IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what they are doing
@@ -212,28 +235,7 @@ IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what
 
 # <<< Utility Functions
 
-################################
-# Initializes a status map with a given status for a list of keys
-# Globals:
-# NONE
-# Arguments:
-#   $1 - the status to set for each key
-#   $2 - the name of the associative array to initialize (passed by name)
-#   $3... - the list of keys to initialize in the map
-# Returns:
-# Nothing, modifies the associative array passed by name
-###############################
-init_status_map() {
-    local status="$1"
-    shift
 
-    declare -n map="$1"
-    shift
-
-    for key in "$@"; do
-        map["$key"]="$status"
-    done
-}
 
 
 ##################################
@@ -535,7 +537,7 @@ check_zed_daemon(){
 # 0 - it does not match
 # 1 - it does match
 #######################################
-check_MTU(){}
+#check_MTU(){}
 
 # <<< Zed Utility Functions
 
@@ -569,7 +571,7 @@ parse_l4t_version(){
 # 0 - system does not allow port forwarding
 # 1- system does
 #######################################
-can_forward_x11(){}
+#can_forward_x11(){}
 
 
 # <<< X11 Utility Functions
@@ -913,8 +915,8 @@ parse_runtime_arguments() {
                 exit 0
                 ;;
             *)
-                error "Unknown option $1"
-                exit 1
+                log "Found Unknown run time arge $1, probbably not an arg for runtime"
+                shift
                 ;;
         esac
     done
@@ -939,7 +941,8 @@ parse_functional_arguments(){
             -c|--colcon)
             build_colcon
             exit 0
-        *)
+            ;;
+            *)
             error "Unknown function $1"
             exit 1;
             ;;
@@ -950,7 +953,7 @@ parse_functional_arguments(){
 
 # >>> MAIN <<< #
 main () {
-    parse_arguments $@
+    parse_runtime_arguments $@
     
     log "Checking for existing installation lock..."
 
