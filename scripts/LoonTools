@@ -162,12 +162,12 @@ REQUIRED_VARIABLES=(
 declare -A CORRECT_FILE_STRUCTURE
 CORRECT_FILE_STRUCTURE=(
     ["$WORKSPACE_DIR"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/zedx_ws"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/zedx_ws/src"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/loone_ws"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/loone_ws/src"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/zed_ws"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/zed_ws/src"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/loon_ws"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/loon_ws/src"]="$DIRECTORY_TYPE"
     ["$WORKSPACE_DIR/docker/LoonE/Dockerfile"]="$FILE_TYPE"
-    ["$WORKSPACE_DIR/docker/ZedX/Dockerfile"]="$FILE_TYPE"
+    ["$WORKSPACE_DIR/docker/Zedx/Dockerfile"]="$FILE_TYPE"
     ["$WORKSPACE_DIR/docker/compose.yaml"]="$FILE_TYPE"
 )
 
