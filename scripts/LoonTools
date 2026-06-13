@@ -831,7 +831,7 @@ build_colcon(){
             log "Running build commands for LoonE service..."
             # it's the same rn but we might want different build args for the zed workspace in the future
             # so keeping it separate for now
-            run '/bin/bash -c "source /opt/ros/humble/setup.bash && \
+            run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
             apt-get update && \
             rosdep update && \
             rosdep install --from-paths src --ignore-src -r -y && \
