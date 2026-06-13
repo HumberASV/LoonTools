@@ -831,7 +831,7 @@ build_colcon(){
             log "Running build commands for LoonE service..."
             # it's the same rn but we might want different build args for the zed workspace in the future
             # so keeping it separate for now
-            run '/bin/bash -c source /opt/ros/humble/setup.bash && \
+            run '/bin/bash -c "source /opt/ros/humble/setup.bash && \
             apt-get update && \
             rosdep update && \
             rosdep install --from-paths src --ignore-src -r -y && \
@@ -845,7 +845,7 @@ build_colcon(){
                 -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
                 -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
                 --no-warn-unused-cli && \
-            rm -rf /var/lib/apt/lists/*'
+            rm -rf /var/lib/apt/lists/*"'
         elif [[ "$service" == "zed" ]]; then
             log "Running build commands for ZedX service..."
             run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
