@@ -844,8 +844,7 @@ build_colcon(){
                 -DZED_SDK_ROOT=/usr/local/zed \
                 -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
                 -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli && \
-            rm -rf /var/lib/apt/lists/*"'
+                --no-warn-unused-cli"'
         elif [[ "$service" == "zed" ]]; then
             log "Running build commands for ZedX service..."
             run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
@@ -861,8 +860,7 @@ build_colcon(){
                 -DZED_SDK_ROOT=/usr/local/zed \
                 -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
                 -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli --packages-skip zed_debug && \
-            rm -rf /var/lib/apt/lists/*"'
+                --no-warn-unused-cli --packages-skip zed_debug"'
         else # not a valid service
             error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
             exit 1
