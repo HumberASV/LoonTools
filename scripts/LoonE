@@ -23,7 +23,7 @@
 
 # Version
 APP_NAME="LoonE"
-VERSION="4.1.1"
+VERSION="4.1.2"
 
 # Names for Docker images and containers
 ZED_IMAGE_NAME="zed-x"

@@ -824,51 +824,54 @@ in_container() {
 ################################
 build_colcon(){
     local service="${1:-loone}"
-    if [[ $IGNORE_DEFENSIVE_CHECKS -eq 1 ]] || [[ $(in_container) == 0 ]]; then
-        echo "Running build commands for $service service..."
-
-        if [[ "$service" == "loone" ]]; then
-            log "Running build commands for LoonE service..."
-            # it's the same rn but we might want different build args for the zed workspace in the future
-            # so keeping it separate for now
-            run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
-            apt-get update && \
-            rosdep update && \
-            rosdep install --from-paths src --ignore-src -r -y && \
-            colcon build --parallel-workers 4 --symlink-install \
-                --event-handlers console_direct+ \
-                --base-paths src \
-                --cmake-clean-cache \
-                --cmake-args \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DZED_SDK_ROOT=/usr/local/zed \
-                -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
-                -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli"'
-        elif [[ "$service" == "zed" ]]; then
-            log "Running build commands for ZedX service..."
-            run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
-            apt-get update && \
-            rosdep update && \
-            rosdep install --from-paths src --ignore-src -r -y && \
-            colcon build --parallel-workers 4 --symlink-install \
-                --event-handlers console_direct+ \
-                --base-paths src \
-                --cmake-clean-cache \
-                --cmake-args \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DZED_SDK_ROOT=/usr/local/zed \
-                -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
-                -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli --packages-skip zed_debug"'
-        else # not a valid service
-            error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
+    if [[ $(in_container) == 0 ]]; then
+        echo "Warning in Container"
+        if confirm "Colcon build should be run inside the container environment. Do you want to continue?"; then
+            log "Continuing with colcon build inside container..."
+        else
+            error "Colcon build should be run inside the container environment. Please run this command after entering the container."
             exit 1
         fi
-        
-    else # if not in container
-       error "Colcon build should be run inside the container environment. Please run this command after entering the container."
-       exit 1
+    fi
+    echo "Running build commands for $service service..."
+
+    if [[ "$service" == "loone" ]]; then
+        log "Running build commands for LoonE service..."
+        # it's the same rn but we might want different build args for the zed workspace in the future
+        # so keeping it separate for now
+        run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
+        apt-get update && \
+        rosdep update && \
+        rosdep install --from-paths src --ignore-src -r -y && \
+        colcon build --parallel-workers 4 --symlink-install \
+            --event-handlers console_direct+ \
+            --base-paths src \
+            --cmake-clean-cache \
+            --cmake-args \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZED_SDK_ROOT=/usr/local/zed \
+            -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
+            -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
+            --no-warn-unused-cli"'
+    elif [[ "$service" == "zed" ]]; then
+        log "Running build commands for ZedX service..."
+        run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
+        apt-get update && \
+        rosdep update && \
+        rosdep install --from-paths src --ignore-src -r -y && \
+        colcon build --parallel-workers 4 --symlink-install \
+            --event-handlers console_direct+ \
+            --base-paths src \
+            --cmake-clean-cache \
+            --cmake-args \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZED_SDK_ROOT=/usr/local/zed \
+            -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
+            -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
+            --no-warn-unused-cli --packages-skip zed_debug"'
+    else # not a valid service
+        error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
+        exit 1
     fi
 }
 
@@ -885,7 +888,6 @@ Options:
     -v, --verbose   Enable verbose mode
     --dry-run       Do not execute changes
     --version       print version
-    --ignore-defensive-checks  Skip defensive checks (use with caution!) Allows building in unsupported environments 
 EOF
 }
 
@@ -912,12 +914,6 @@ parse_runtime_arguments() {
             --dry-run)
                 DRY_RUN=1
                 log All bark no bite mode running!
-                SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
-                shift
-                ;;
-            -i|--ignore-defensive-checks)
-                IGNORE_DEFENSIVE_CHECKS=1
-                log "Ignoring defensive checks! Make sure you know what you are doing!"
                 SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
                 shift
                 ;;
