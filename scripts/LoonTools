@@ -820,7 +820,7 @@ check_mtu(){
         local mtu
         mtu=$(ip link show "$iface" 2>/dev/null | grep -oP 'mtu \K[0-9]+')
         [[ -n "$mtu" && "$mtu" -lt "$required_mtu" ]] && MTU_ISSUES+=("$iface (MTU: $mtu, required: $required_mtu)")
-    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)')
+    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)' || true)
 }
 
 # <<< Diagnosis Functions

@@ -231,7 +231,7 @@ check_mtu_warn(){
         if [[ -n "$mtu" && "$mtu" -lt "$required_mtu" ]]; then
             warn "$iface MTU is $mtu (requires $required_mtu for ZED X) — run 'sudo configMTU'"
         fi
-    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)')
+    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)' || true)
 }
 
 # >>> Argument Functions <<<
