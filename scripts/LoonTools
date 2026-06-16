@@ -41,7 +41,7 @@ LOONE_SOURCE=$SCRIPTS_SOURCE/LoonE
 ASSETS_DIR="./src/assets"
 WORKSPACE_DIR="$HOME/LoonE_ws"
 GROUP_NAME="loon-env-users"
-
+LOCKFILE="/tmp/loon-env-install.lock"
 
 # Colors for stdout
 PRIMARY=$(tput sgr0)
@@ -100,7 +100,48 @@ required_apt_packages_list=(
     "less"
     "curl"
     "gnupg2"
+    "ros-humble-compressed-image-transport"
+    "nlohmann-json3-dev"
+    "libgeographic-dev"
+    "python3-mypy"
+    "python3-pytest-mock"
+    "ros-humble-iceoryx-binding-c"
+    "ros-humble-cyclonedds"
+    "ros-humble-theora-image-transport"
+    "clang-format"
+    "lm-sensors"
+    "python3-ntplib"
+    "ros-humble-launch-pytest"
+    "ros-humble-nav2-rviz-plugins"
+    "nvidia-jetpack"
+    "pva-allow-2"
+    "android-tools-adb"
+    "adafruit-circuitpython-motor"
+    "adafruit-circuitpython-pca9685"
 )
+
+################################
+# Initializes a status map with a given status for a list of keys
+# Globals:
+# NONE
+# Arguments:
+#   $1 - the status to set for each key
+#   $2 - the name of the associative array to initialize (passed by name)
+#   $3... - the list of keys to initialize in the map
+# Returns:
+# Nothing, modifies the associative array passed by name
+###############################
+init_status_map() {
+    local status="$1"
+    shift
+
+    declare -n map="$1"
+    shift
+
+    for key in "$@"; do
+        map["$key"]="$status"
+    done
+}
 
 #######################################
 # Dictionary to check for in environment
@@ -117,12 +158,13 @@ REQUIRED_VARIABLES=(
     ["RMW_IMPLEMENTATION"]="rmw_cyclonedds_cpp"
     ["ROS_DOMAIN_ID"]="0"
     ["ROS_LOCALHOST_ONLY"]="0"
-    ["ZED_SDK_VERSION"]="5.1.0"
+    ["ZED_SDK_VERSION"]="5.2.3"
     ["L4T_VERSION"]="36.4.2"
     ["ROS_DISTRO"]="humble"
     ["XAUTHORITY"]="/home/$USER/.Xauthority"
     ["DISPLAY"]=":0"
     ["COLCON_PREFIX_PATH"]=null
+    ["CYCLONEDDS_URI"]="file:///opt/cyclonedds.xml"
 )
 
 #######################################
@@ -139,12 +181,12 @@ REQUIRED_VARIABLES=(
 declare -A CORRECT_FILE_STRUCTURE
 CORRECT_FILE_STRUCTURE=(
     ["$WORKSPACE_DIR"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/zedx_ws"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/zedx_ws/src"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/loone_ws"]="$DIRECTORY_TYPE"
-    ["$WORKSPACE_DIR/loone_ws/src"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/zed_ws"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/zed_ws/src"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/loon_ws"]="$DIRECTORY_TYPE"
+    ["$WORKSPACE_DIR/loon_ws/src"]="$DIRECTORY_TYPE"
     ["$WORKSPACE_DIR/docker/LoonE/Dockerfile"]="$FILE_TYPE"
-    ["$WORKSPACE_DIR/docker/ZedX/Dockerfile"]="$FILE_TYPE"
+    ["$WORKSPACE_DIR/docker/Zedx/Dockerfile"]="$FILE_TYPE"
     ["$WORKSPACE_DIR/docker/compose.yaml"]="$FILE_TYPE"
 )
 
@@ -158,7 +200,7 @@ CORRECT_FILE_STRUCTURE=(
 # Dictionary value types:
 #   $MISSING | $INVALID | $VALID | $NOT_CHECKED
 #################################
-declare -a REQUIRED_VARIABLE_STATUS
+declare -A REQUIRED_VARIABLE_STATUS
 init_status_map "$NOT_CHECKED" REQUIRED_VARIABLE_STATUS "${!REQUIRED_VARIABLES[@]}"
 
 ########################################
@@ -203,7 +245,7 @@ init_status_map "$NOT_CHECKED" REQUIRED_APT_PACKAGES "${required_apt_packages_li
 # <<< Script Constants
 
 # Script Arguments >>>
-SHIFT_ARGS_BY=0 # Used for shifting arguements
+SHIFT_ARGS_BY=1 # Used for shifting arguements
 VERBOSE=0 # Verbose mode
 DRY_RUN=0 # Dry running (debug)
 IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what they are doing
@@ -212,28 +254,7 @@ IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what
 
 # <<< Utility Functions
 
-################################
-# Initializes a status map with a given status for a list of keys
-# Globals:
-# NONE
-# Arguments:
-#   $1 - the status to set for each key
-#   $2 - the name of the associative array to initialize (passed by name)
-#   $3... - the list of keys to initialize in the map
-# Returns:
-# Nothing, modifies the associative array passed by name
-###############################
-init_status_map() {
-    local status="$1"
-    shift
 
-    declare -n map="$1"
-    shift
-
-    for key in "$@"; do
-        map["$key"]="$status"
-    done
-}
 
 
 ##################################
@@ -440,7 +461,7 @@ cleanup() {
 #######################################
 parse_zed_version(){
     local ZED_VERSION=$(sudo cat /usr/local/zed/zed-config-version.cmake | grep "set(PACKAGE_VERSION \"" | sed -E 's/set\(PACKAGE_VERSION "(.*)"\)/\1/')
-    return $ZED_VERSION
+    echo "$ZED_VERSION"
 }
 
 #######################################
@@ -453,7 +474,7 @@ parse_zed_version(){
 #######################################
 get_zed_daemon_status(){
     # if we are in a container we don't have systemctl so we have to use the command directly
-    if [[ $(in_container) == true ]]; then
+    if in_container; then
         local output=$(sudo /usr/local/zed/zed_x_daemon --status 2>&1 || echo "offline")
         if [[ "$output" == *"online"* ]]; then
             echo "online"
@@ -485,7 +506,7 @@ get_zed_daemon_status(){
 restart_zed_daemon(){
     log "Attempting to restart Zed Daemon..."
     # if we are in a container we don't have systemctl so we have to use the command directly
-    if [[ $(in_container) == true ]]; then
+    if in_container; then
         run "sudo /usr/local/zed/zed_x_daemon --restart"
         return
     else
@@ -535,7 +556,7 @@ check_zed_daemon(){
 # 0 - it does not match
 # 1 - it does match
 #######################################
-check_MTU(){}
+#check_MTU(){}
 
 # <<< Zed Utility Functions
 
@@ -551,7 +572,7 @@ check_MTU(){}
 #######################################
 parse_l4t_version(){
     local L4T_VERSION="$(sed -n 's/^# \(R[0-9]\+\).*, REVISION: \([0-9.]\+\).*/\1.\2/p' /etc/nv_tegra_release 2>/dev/null || echo "unknown")"
-    return $L4T_VERSION
+    echo "$L4T_VERSION"
 }
 
 
@@ -569,7 +590,7 @@ parse_l4t_version(){
 # 0 - system does not allow port forwarding
 # 1- system does
 #######################################
-can_forward_x11(){}
+#can_forward_x11(){}
 
 
 # <<< X11 Utility Functions
@@ -601,13 +622,14 @@ check_variables(){
 
         if [[ "$expected_value" == "$actual_value" ]]; then
             log "Variable $GREEN $var $PRIMARY is valid."
-            REQUIRED_VARIABLE_STATUS["$var"]="$VALID"
+            
+            REQUIRED_VARIABLE_STATUS[$var]="$VALID"
         elif [[ -z "$actual_value" ]]; then
             log "Variable $RED $var $PRIMARY is missing."
-            REQUIRED_VARIABLE_STATUS["$var"]="$MISSING"
+            REQUIRED_VARIABLE_STATUS[$var]="$MISSING"
         else
             log "Variable $ORANGE $var $PRIMARY is invalid. Actual value: $RED $actual_value $PRIMARY"
-            REQUIRED_VARIABLE_STATUS["$var"]="$INVALID"
+            REQUIRED_VARIABLE_STATUS[$var]="$INVALID"
         fi
     done
 }
@@ -688,6 +710,7 @@ diagnose_problems(){
     check_apt_packages
     check_commands
     check_zed_daemon
+    check_mtu
     # Print summary of results
     echo "Diagnosis Summary:"
 
@@ -720,8 +743,8 @@ diagnose_problems(){
     done
 
     echo "${BOLD}Commands:${PRIMARY}"
-    for cmd in "${!REQUIRED_COMMANDS[@]}"; do
-        local status="${REQUIRED_COMMANDS[$cmd]}"
+    for cmd in "${!required_commands[@]}"; do
+        local status="${required_commands[$cmd]}"
         if [[ "$status" -eq "$VALID" ]]; then
             echo "  $GREEN $cmd: Available $PRIMARY"
         elif [[ "$status" -eq "$MISSING" ]]; then
@@ -742,6 +765,16 @@ diagnose_problems(){
             echo "  $YELLOW $pkg: Not Checked $PRIMARY"
         fi
     done
+
+    echo "${BOLD}Network MTU (required: 9000):${PRIMARY}"
+    if [[ ${#MTU_ISSUES[@]} -eq 0 ]]; then
+        echo "  ${GREEN}✓ All physical interfaces >= 9000${PRIMARY}"
+    else
+        for issue in "${MTU_ISSUES[@]}"; do
+            echo "  ${RED}✗ $issue${PRIMARY}"
+        done
+        echo "  Run ${BOLD}sudo configMTU${PRIMARY} to enable Jumbo Frames."
+    fi
 }
 
 ########################################
@@ -759,17 +792,35 @@ diagnose_problems(){
 check_commands(){
     log "Checking for required commands..."
     local missing_commands=()
-    for cmd in "${!REQUIRED_COMMANDS[@]}"; do
+    for cmd in "${!required_commands[@]}"; do
         log "Checking command $BLUE $cmd $PRIMARY..."
         if command -v "$cmd" >/dev/null 2>&1; then
             log "Command $GREEN $cmd $PRIMARY is available."
-            REQUIRED_COMMANDS["$cmd"]="$VALID"
+            required_commands["$cmd"]="$VALID"
         else
             log "Command $RED $cmd $PRIMARY is missing."
-            REQUIRED_COMMANDS["$cmd"]="$MISSING"
+            required_commands["$cmd"]="$MISSING"
             missing_commands+=("$cmd")
         fi
     done
+}
+
+########################################
+# Checks MTU on physical interfaces and populates MTU_ISSUES for diagnose_problems output
+# Globals:
+#  MTU_ISSUES
+# Arguments:
+#  none
+########################################
+check_mtu(){
+    log "Checking MTU on network interfaces..."
+    local required_mtu=9000
+    MTU_ISSUES=()
+    while IFS= read -r iface; do
+        local mtu
+        mtu=$(ip link show "$iface" 2>/dev/null | grep -oP 'mtu \K[0-9]+')
+        [[ -n "$mtu" && "$mtu" -lt "$required_mtu" ]] && MTU_ISSUES+=("$iface (MTU: $mtu, required: $required_mtu)")
+    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)')
 }
 
 # <<< Diagnosis Functions
@@ -805,53 +856,54 @@ in_container() {
 ################################
 build_colcon(){
     local service="${1:-loone}"
-    if [[ $IGNORE_DEFENSIVE_CHECKS -eq 1 ]] || [[ $(in_container) == 0 ]]; then
-        echo "Running build commands for $service service..."
-
-        if [[ "$service" == "loone" ]]; then
-            log "Running build commands for LoonE service..."
-            # it's the same rn but we might want different build args for the zed workspace in the future
-            # so keeping it separate for now
-            run /bin/bash -c "source /opt/ros/humble/setup.bash && \
-            apt-get update && \
-            rosdep update && \
-            rosdep install --from-paths src --ignore-src -r -y && \
-            colcon build --parallel-workers 4 --symlink-install \
-                --event-handlers console_direct+ \
-                --base-paths src \
-                --cmake-clean-cache \
-                --cmake-args \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DZED_SDK_ROOT=/usr/local/zed \
-                -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
-                -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli && \
-            rm -rf /var/lib/apt/lists/*"
-        elif [[ "$service" == "zed" ]]; then
-            log "Running build commands for ZedX service..."
-            run /bin/bash -c "source /opt/ros/humble/setup.bash && \
-            apt-get update && \
-            rosdep update && \
-            rosdep install --from-paths src --ignore-src -r -y && \
-            colcon build --parallel-workers 4 --symlink-install \
-                --event-handlers console_direct+ \
-                --base-paths src \
-                --cmake-clean-cache \
-                --cmake-args \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DZED_SDK_ROOT=/usr/local/zed \
-                -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
-                -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
-                --no-warn-unused-cli && \
-            rm -rf /var/lib/apt/lists/*"
-        else # not a valid service
-            error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
+    if ! in_container; then
+        warn "Not running inside a container."
+        if confirm "Colcon build should be run inside the container environment. Do you want to continue?"; then
+            log "Continuing with colcon build outside container..."
+        else
+            error "Colcon build should be run inside the container environment. Please run this command after entering the container."
             exit 1
         fi
-        
-    else # if not in container
-       error "Colcon build should be run inside the container environment. Please run this command after entering the container."
-       exit 1
+    fi
+    echo "Running build commands for $service service..."
+
+    if [[ "$service" == "loone" ]]; then
+        log "Running build commands for LoonE service..."
+        # it's the same rn but we might want different build args for the zed workspace in the future
+        # so keeping it separate for now
+        run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
+        apt-get update && \
+        rosdep update && \
+        rosdep install --from-paths src --ignore-src -r -y && \
+        colcon build --parallel-workers 4 --symlink-install \
+            --event-handlers console_direct+ \
+            --base-paths src \
+            --cmake-clean-cache \
+            --cmake-args \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZED_SDK_ROOT=/usr/local/zed \
+            -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
+            -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
+            --no-warn-unused-cli"'
+    elif [[ "$service" == "zed" ]]; then
+        log "Running build commands for ZedX service..."
+        run 'sudo /bin/bash -c "source /opt/ros/humble/setup.bash && \
+        apt-get update && \
+        rosdep update && \
+        rosdep install --from-paths src --ignore-src -r -y && \
+        colcon build --parallel-workers 4 --symlink-install \
+            --event-handlers console_direct+ \
+            --base-paths src \
+            --cmake-clean-cache \
+            --cmake-args \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DZED_SDK_ROOT=/usr/local/zed \
+            -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs \
+            -DCMAKE_CXX_FLAGS=\"-Wl,--allow-shlib-undefined\" \
+            --no-warn-unused-cli --packages-skip zed_debug"'
+    else # not a valid service
+        error "Unknown service: $BLUE $service $PRIMARY. Valid options are 'loone' or 'zed'."
+        exit 1
     fi
 }
 
@@ -868,7 +920,6 @@ Options:
     -v, --verbose   Enable verbose mode
     --dry-run       Do not execute changes
     --version       print version
-    --ignore-defensive-checks  Skip defensive checks (use with caution!) Allows building in unsupported environments 
 EOF
 }
 
@@ -898,12 +949,6 @@ parse_runtime_arguments() {
                 SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
                 shift
                 ;;
-            -i|--ignore-defensive-checks)
-                IGNORE_DEFENSIVE_CHECKS=1
-                log "Ignoring defensive checks! Make sure you know what you are doing!"
-                SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
-                shift
-                ;;
             -h|help)
                 usage
                 exit 0
@@ -913,8 +958,8 @@ parse_runtime_arguments() {
                 exit 0
                 ;;
             *)
-                error "Unknown option $1"
-                exit 1
+                log "Found Unknown run time arge $1, probbably not an arg for runtime"
+                shift
                 ;;
         esac
     done
@@ -937,9 +982,10 @@ parse_functional_arguments(){
             exit 0
             ;;
             -c|--colcon)
-            build_colcon
+            build_colcon "$2"
             exit 0
-        *)
+            ;;
+            *)
             error "Unknown function $1"
             exit 1;
             ;;
@@ -950,7 +996,7 @@ parse_functional_arguments(){
 
 # >>> MAIN <<< #
 main () {
-    parse_arguments $@
+    parse_runtime_arguments $@
     
     log "Checking for existing installation lock..."
 
