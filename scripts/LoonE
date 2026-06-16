@@ -134,7 +134,7 @@ target_services(){
     local targets=()
     local arg
     if [ "$#" -eq 0 ]; then
-        targets=(zed loone all)
+        targets=(zed loone)
     else
         for arg in "$@"; do
             case "$arg" in
@@ -495,7 +495,7 @@ build() {
         return 1
     fi
 
-    if [[ "$1" != --* ]]; then
+    if [[ "$1" != -* ]]; then
         error "Build options must be specified before target services."
         error "Use '-h' or '--help' to see usage information."
         return 1
@@ -504,6 +504,7 @@ build() {
     if [[ "$1" == --no-cache || "$1" == -n ]]; then
        with_cache=0
        log "Set build to use no cache"
+       shift
     fi
 
     if [[ "$1" == --virtual || "$1" == -v ]]; then
