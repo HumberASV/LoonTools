@@ -710,7 +710,6 @@ diagnose_problems(){
     check_apt_packages
     check_commands
     check_zed_daemon
-    check_mtu
     # Print summary of results
     echo "Diagnosis Summary:"
 
@@ -765,16 +764,6 @@ diagnose_problems(){
             echo "  $YELLOW $pkg: Not Checked $PRIMARY"
         fi
     done
-
-    echo "${BOLD}Network MTU (required: 9000):${PRIMARY}"
-    if [[ ${#MTU_ISSUES[@]} -eq 0 ]]; then
-        echo "  ${GREEN}✓ All physical interfaces >= 9000${PRIMARY}"
-    else
-        for issue in "${MTU_ISSUES[@]}"; do
-            echo "  ${RED}✗ $issue${PRIMARY}"
-        done
-        echo "  Run ${BOLD}sudo configMTU${PRIMARY} to enable Jumbo Frames."
-    fi
 }
 
 ########################################
@@ -979,6 +968,19 @@ parse_functional_arguments(){
         case "$1" in
             -d|--wtf|--doctor)
             diagnose_problems
+            exit 0
+            ;;
+            -mtu|--mtu)
+            check_mtu
+            echo "${BOLD}Network MTU (required: 9000):${PRIMARY}"
+            if [[ ${#MTU_ISSUES[@]} -eq 0 ]]; then
+                echo "  ${GREEN}✓ All physical interfaces >= 9000${PRIMARY}"
+            else
+                for issue in "${MTU_ISSUES[@]}"; do
+                    echo "  ${RED}✗ $issue${PRIMARY}"
+                done
+                echo "  Run ${BOLD}sudo configMTU${PRIMARY} to enable Jumbo Frames."
+            fi
             exit 0
             ;;
             -c|--colcon)
