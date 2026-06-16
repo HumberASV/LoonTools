@@ -115,6 +115,9 @@ required_apt_packages_list=(
     "ros-humble-nav2-rviz-plugins"
     "nvidia-jetpack"
     "pva-allow-2"
+    "android-tools-adb"
+    "adafruit-circuitpython-motor"
+    "adafruit-circuitpython-pca9685"
 )
 
 ################################
@@ -458,7 +461,7 @@ cleanup() {
 #######################################
 parse_zed_version(){
     local ZED_VERSION=$(sudo cat /usr/local/zed/zed-config-version.cmake | grep "set(PACKAGE_VERSION \"" | sed -E 's/set\(PACKAGE_VERSION "(.*)"\)/\1/')
-    return $ZED_VERSION
+    echo "$ZED_VERSION"
 }
 
 #######################################
@@ -471,7 +474,7 @@ parse_zed_version(){
 #######################################
 get_zed_daemon_status(){
     # if we are in a container we don't have systemctl so we have to use the command directly
-    if [[ $(in_container) == true ]]; then
+    if in_container; then
         local output=$(sudo /usr/local/zed/zed_x_daemon --status 2>&1 || echo "offline")
         if [[ "$output" == *"online"* ]]; then
             echo "online"
@@ -503,7 +506,7 @@ get_zed_daemon_status(){
 restart_zed_daemon(){
     log "Attempting to restart Zed Daemon..."
     # if we are in a container we don't have systemctl so we have to use the command directly
-    if [[ $(in_container) == true ]]; then
+    if in_container; then
         run "sudo /usr/local/zed/zed_x_daemon --restart"
         return
     else
@@ -569,7 +572,7 @@ check_zed_daemon(){
 #######################################
 parse_l4t_version(){
     local L4T_VERSION="$(sed -n 's/^# \(R[0-9]\+\).*, REVISION: \([0-9.]\+\).*/\1.\2/p' /etc/nv_tegra_release 2>/dev/null || echo "unknown")"
-    return $L4T_VERSION
+    echo "$L4T_VERSION"
 }
 
 
@@ -707,6 +710,7 @@ diagnose_problems(){
     check_apt_packages
     check_commands
     check_zed_daemon
+    check_mtu
     # Print summary of results
     echo "Diagnosis Summary:"
 
@@ -739,8 +743,8 @@ diagnose_problems(){
     done
 
     echo "${BOLD}Commands:${PRIMARY}"
-    for cmd in "${!REQUIRED_COMMANDS[@]}"; do
-        local status="${REQUIRED_COMMANDS[$cmd]}"
+    for cmd in "${!required_commands[@]}"; do
+        local status="${required_commands[$cmd]}"
         if [[ "$status" -eq "$VALID" ]]; then
             echo "  $GREEN $cmd: Available $PRIMARY"
         elif [[ "$status" -eq "$MISSING" ]]; then
@@ -761,6 +765,16 @@ diagnose_problems(){
             echo "  $YELLOW $pkg: Not Checked $PRIMARY"
         fi
     done
+
+    echo "${BOLD}Network MTU (required: 9000):${PRIMARY}"
+    if [[ ${#MTU_ISSUES[@]} -eq 0 ]]; then
+        echo "  ${GREEN}✓ All physical interfaces >= 9000${PRIMARY}"
+    else
+        for issue in "${MTU_ISSUES[@]}"; do
+            echo "  ${RED}✗ $issue${PRIMARY}"
+        done
+        echo "  Run ${BOLD}sudo configMTU${PRIMARY} to enable Jumbo Frames."
+    fi
 }
 
 ########################################
@@ -778,17 +792,35 @@ diagnose_problems(){
 check_commands(){
     log "Checking for required commands..."
     local missing_commands=()
-    for cmd in "${!REQUIRED_COMMANDS[@]}"; do
+    for cmd in "${!required_commands[@]}"; do
         log "Checking command $BLUE $cmd $PRIMARY..."
         if command -v "$cmd" >/dev/null 2>&1; then
             log "Command $GREEN $cmd $PRIMARY is available."
-            REQUIRED_COMMANDS["$cmd"]="$VALID"
+            required_commands["$cmd"]="$VALID"
         else
             log "Command $RED $cmd $PRIMARY is missing."
-            REQUIRED_COMMANDS["$cmd"]="$MISSING"
+            required_commands["$cmd"]="$MISSING"
             missing_commands+=("$cmd")
         fi
     done
+}
+
+########################################
+# Checks MTU on physical interfaces and populates MTU_ISSUES for diagnose_problems output
+# Globals:
+#  MTU_ISSUES
+# Arguments:
+#  none
+########################################
+check_mtu(){
+    log "Checking MTU on network interfaces..."
+    local required_mtu=9000
+    MTU_ISSUES=()
+    while IFS= read -r iface; do
+        local mtu
+        mtu=$(ip link show "$iface" 2>/dev/null | grep -oP 'mtu \K[0-9]+')
+        [[ -n "$mtu" && "$mtu" -lt "$required_mtu" ]] && MTU_ISSUES+=("$iface (MTU: $mtu, required: $required_mtu)")
+    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)')
 }
 
 # <<< Diagnosis Functions
@@ -824,10 +856,10 @@ in_container() {
 ################################
 build_colcon(){
     local service="${1:-loone}"
-    if [[ $(in_container) == 0 ]]; then
-        echo "Warning in Container"
+    if ! in_container; then
+        warn "Not running inside a container."
         if confirm "Colcon build should be run inside the container environment. Do you want to continue?"; then
-            log "Continuing with colcon build inside container..."
+            log "Continuing with colcon build outside container..."
         else
             error "Colcon build should be run inside the container environment. Please run this command after entering the container."
             exit 1

@@ -32,7 +32,7 @@ ZED_CONTAINER_NAME="docker-zed-1"
 LOON_E_CONTAINER_NAME="docker-loone-1"
 
 # Asset directory and workspace directory with defaults
-ASSET_DIR="${ASSET_DIR:-/usr/share/Loon-Env}"
+ASSET_DIR="${LOONE_FILES_DIR:-/opt/loon-env/assets}"
 LOONE_WORKSPACE_DIR="${LOONE_WORKSPACE_DIR:-$HOME/LoonE_ws}"
 COMPOSE_FILE="$LOONE_WORKSPACE_DIR/docker/compose.yaml"
 
@@ -218,6 +218,22 @@ is_image_built() {
     fi
 }
 
+################################
+# Warns to stderr if any physical interface MTU is below 9000 (required for ZED X streaming)
+# Globals: None
+# Arguments: None
+################################
+check_mtu_warn(){
+    local required_mtu=9000
+    while IFS= read -r iface; do
+        local mtu
+        mtu=$(ip link show "$iface" 2>/dev/null | grep -oP 'mtu \K[0-9]+')
+        if [[ -n "$mtu" && "$mtu" -lt "$required_mtu" ]]; then
+            warn "$iface MTU is $mtu (requires $required_mtu for ZED X) — run 'sudo configMTU'"
+        fi
+    done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)')
+}
+
 # >>> Argument Functions <<<
 
 ###############################
@@ -339,6 +355,7 @@ version() {
 ###############################
 start() {
     log "Received start command with arguments: $*"
+    check_mtu_warn
     target_services "$@"
     log "Target services to start: ${SERVICES[*]}"
     for service in "${SERVICES[@]}"; do
@@ -708,6 +725,7 @@ parse_arguments() {
                 return 0
                 ;;
             --health)
+                check_mtu_warn
                 is_service_running "zed"
                 zed_running=$?
                 is_service_running "loone"
