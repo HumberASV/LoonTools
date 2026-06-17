@@ -1,5 +1,6 @@
 #!/bin/bash
 #
+# requires loon_hub to be sourced for utility functions and global variables
 # LoonTools - A collection of utility functions for Loon-Env
 #
 # MIT License
@@ -24,12 +25,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+source loon_hub
+
 set -eo pipefail # Exit on error and handle errors in pipelines
 IFS=$'\n\t' # Handle spaces in filenames
 
 # Script Constants >>>
 
-VERSION=1.0.0
+LOON_TOOLS_VERSION=1.0.0
 
 # Installation paths and names
 GROUP_NAME="loon-env-users"
@@ -41,7 +44,7 @@ LOONE_SOURCE=$SCRIPTS_SOURCE/LoonE
 ASSETS_DIR="./src/assets"
 WORKSPACE_DIR="$HOME/LoonE_ws"
 GROUP_NAME="loon-env-users"
-LOCKFILE="/tmp/loon-env-install.lock"
+LOCKFILE="/tmp/loon-env-install.lock" # Change Lockfile path to /tmp/loon-env-install.lock
 
 # Colors for stdout
 PRIMARY=$(tput sgr0)
@@ -289,165 +292,6 @@ print_map_status() {
 }
 
 
-#######################################
-# Logs to stdout if $VERBOSE true
-# Globals:
-# VERBOSE
-# GREEN
-# BOLD
-# PRIMARY
-# Arguments:
-#   $* - the msg
-# Returns:
-# Nothing
-#######################################
-log() {
-    if [[ "$VERBOSE" -eq 1 ]]; then
-        echo "${GREEN}${BOLD}[INFO] ${PRIMARY}$*"
-    fi
-}
-
-#######################################
-# Prints Error; does not exit
-# Globals:
-# RED
-# BOLD
-# PRIMARY
-# Arguments:
-#   $* - the msg
-# Returns:
-# Nothing
-#######################################
-error() {
-    echo "${RED}${BOLD}[ERROR] ${PRIMARY}$*" >&2
-}
-
-#######################################
-# Prints warning
-# Globals:
-# ORANGE
-# BOLD
-# PRIMARY
-# Arguments:
-#   $* - the msg
-# Returns:
-# Nothing
-#######################################
-warn() {
-    echo "${ORANGE}${BOLD}[WARN] ${PRIMARY}$*" >&2
-}
-
-#######################################
-# Runs a command unless $DRY_RUN is true then it prints it to sdtout
-# Globals:
-# YELLOW
-# BOLD
-# PRIMARY
-# Arguments:
-#   $1 - the command
-# Returns:
-# Either the string of the command or executes the command with eval
-#######################################
-run() {
-    if [[ "$DRY_RUN" -eq 1 ]]; then
-        echo "${YELLOW}${BOLD}[DRY RUN] ${PRIMARY} $*"
-    else
-        eval "$@"
-    fi
-}
-
-#######################################
-# Checks if the required command exists and exits if not
-# Globals:
-# BLUE
-# PRIMARY
-# Arguments:
-#   $1 - the command
-# Returns:
-# Nothing, exits if commmand is missing
-#######################################
-require_command() {
-    command -v "$1" >/dev/null 2>&1 || {
-        error Missing required command: ${BLUE} "$1" ${PRIMARY} Please install and retry.
-        exit 1
-    }
-}
-
-
-
-#######################################
-# Asks on stdout using read for confirmation
-# Globals:
-# BOLD
-# PRIMARY
-# REPLY
-# Arguments:
-#   $1 - prompt string
-# Returns:
-#   0 if yes
-#   1 if no
-#######################################
-confirm() {
-    local prompt="${1:-Are you sure?}"
-    local reply
-    while true; do
-        read -n 1 -r -p "${prompt} ${BOLD}[y/n]${PRIMARY}: "
-        echo 
-        case "$REPLY" in
-            [Yy]) return 0;;
-            [Nn]) return 1;;
-            *) printf "Please enter y or n.\n";;
-        esac
-    done
-}
-
-#########################################
-# Check if the script is run as root
-# Globals:
-#  EUID
-# Arguments:
-#  None
-# Outputs:
-#  Exits with an error message if run as root
-#########################################
-require_non_root() {
-    if [[ "$EUID" -eq 0 ]]; then
-        echo "This script must not be run as root. Please use a regular user account." >&2
-        exit 1
-    fi
-}
-
-# Lockfile Utility >>>
-
-#######################################
-# Create lock file to prevent concurrent installations
-# Globals:
-#  LOCKFILE
-# Arguments:
-#  None
-# Outputs:
-#  Writes the current process ID to the lock file
-#######################################
-create_lock() {
-    log "Creating installation lock at $LOCKFILE..."
-    run 'echo "$$" > "$LOCKFILE"'    
-}
-
-#########################################
-# Remove lock file on exit
-# Globals:
-#  LOCKFILE
-# Arguments:
-#  None
-# Outputs:
-#  Removes the lock file
-#########################################
-cleanup() {
-    log "Cleaning up installation lock..."
-    run rm -f "$LOCKFILE"
-}
-
-# <<< Lockfile Utility
 
 # Zed Utility Functions >>>
 
@@ -917,7 +761,7 @@ EOF
 # Globals:
 # VERBOSE
 # DRY_RUN
-# VERSION
+# LOON_TOOLS_VERSION
 # Arguments:
 #   $@ Arguments to parse
 # Returns:
@@ -943,7 +787,7 @@ parse_runtime_arguments() {
                 exit 0
                 ;;
             --version)
-                echo v"$VERSION"
+                echo v"$LOON_TOOLS_VERSION"
                 exit 0
                 ;;
             *)

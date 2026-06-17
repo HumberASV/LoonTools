@@ -1,0 +1,386 @@
+#!/bin/bash
+#
+# The loon_hub script is the dependency for all 
+# Loon-E scripts. It contains all the utility functions for source imports
+# Should be sourced at the top of all Loon-E scripts with:
+# source "$(dirname "${BASH_SOURCE[0]}")/loon_hub"
+# Copyright (c) 2026 Carson Fujita
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Versions
+LOON_HUB_VERSION="1.0.0"
+LOON_ENV_VERSION="5.0.0"
+LOON_E_VERSION="4.1.2"
+LOON_TOOLS_VERSION="2.0.0"
+LOCKFILE="/tmp/loon-hub.lock"
+ZED_SDK_VERSION="5.2" #Default
+ROS_DISTRO="humble" # Default
+OPERATING_SYSTEM="ubuntu" # Default
+
+# Colors for stdout
+PRIMARY=$(tput sgr0)
+RED=$(tput setaf 9)
+GREEN=$(tput setaf 2)
+YELLOW=$(tput setaf 3)
+ORANGE=$(tput setaf 202)
+BLUE=$(tput setaf 4)
+BOLD=$(tput bold)
+
+# Global variables for build options
+VERBOSE=0
+DRY_RUN=0
+FORCE=0
+
+# List of detected missing dependencies for APT installation, populated by require_apt_package function
+MISSING_APT_PACKAGES=()
+
+# List of missing repositories for APT installation, populated by require_apt_repository function
+MISSING_APT_REPOSITORIES=()
+
+# Utility Functions >>
+
+#######################################
+# Logs to stdout if $VERBOSE true
+# Globals:
+# VERBOSE
+# GREEN
+# BOLD
+# PRIMARY
+# Arguments:
+#   $* - the msg
+# Returns:
+# Nothing
+#######################################
+log() {
+    if [[ "$VERBOSE" -eq 1 ]]; then
+        echo "${GREEN}${BOLD}[INFO] ${PRIMARY}$*"
+    fi
+}
+
+#######################################
+# Prints Error; does not exit
+# Globals:
+# RED
+# BOLD
+# PRIMARY
+# Arguments:
+#   $* - the msg
+# Returns:
+# Nothing
+#######################################
+error() {
+    echo "${RED}${BOLD}[ERROR] ${PRIMARY}$*" >&2
+}
+
+#######################################
+# Prints warning
+# Globals:
+# ORANGE
+# BOLD
+# PRIMARY
+# Arguments:
+#   $* - the msg
+# Returns:
+# Nothing
+#######################################
+warn() {
+    echo "${ORANGE}${BOLD}[WARN] ${PRIMARY}$*" >&2
+}
+
+#######################################
+# Runs a command unless $DRY_RUN is true then it prints it to sdtout
+# Globals:
+# YELLOW
+# BOLD
+# PRIMARY
+# Arguments:
+#   $1 - the command
+# Returns:
+# Either the string of the command or executes the command with eval
+#######################################
+run() {
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "${YELLOW}${BOLD}[DRY RUN] ${PRIMARY} $*"
+    else
+        eval "$@"
+    fi
+}
+
+#######################################
+# Asks on stdout using read for confirmation
+# If $FORCE is true, it will skip the confirmation and return success
+# Globals:
+# BOLD
+# PRIMARY
+# REPLY
+# FORCE
+# Arguments:
+#   $1 - prompt string
+# Returns:
+#   0 if yes
+#   1 if no
+#######################################
+confirm() {
+    if [[ "$FORCE" -eq 1 ]]; then
+        return 0
+    fi
+    local prompt="${1:-Are you sure?}"
+    local REPLY
+    while true; do
+        read -n 1 -r -p "${prompt} ${BOLD}[y/n]${PRIMARY}: " REPLY
+        printf "\n"
+        case "$REPLY" in
+            [Yy]) return 0;;
+            [Nn]) return 1;;
+            *) printf "Please enter y or n.\n";;
+        esac
+    done
+}
+
+#######################################
+# DEPRECATED: Use require_apt_package for APT dependencies or implement a custom check for non-APT dependencies
+# Check if a required command is available
+# If $FORCE is true, it will skip the check and return success
+# Globals:
+#  INSTALL_DEPS
+#  FORCE
+# Arguments:
+#  cmd - The command to check for
+#  error_msg - Optional custom error message to display if the command is not found
+# Outputs:
+#  Exits with an error message if the command is not found
+#######################################
+require_command() {
+    warn "Deprecation Warning: 'require_command' is deprecated. Please use 'require_apt_package' for APT packages or implement a custom check for non-APT dependencies."
+    if [[ "$FORCE" -eq 1 ]]; then
+        return 0
+    fi
+    log "Checking for required command: $1"
+    local cmd="$1"
+    local error_msg="${2:-Error: Required command '$cmd' not found. Please install it and try again.}"
+    if ! command -v "$cmd" &> /dev/null; then
+        error "$error_msg"
+        exit 1
+    fi
+}
+
+#######################################
+# Check if a required APT package is installed, and if not, add it to the list of missing packages
+# If $FORCE is true, it will skip the check and return success
+# Globals:
+#  MISSING_APT_PACKAGES
+#  FORCE
+# Arguments:
+#  pkg - The APT package to check for
+#  error_msg - Optional custom error message to display if the package is not found
+# Outputs:
+#  Adds the missing package to the MISSING_APT_PACKAGES array if not found
+#######################################
+require_apt_package() {
+    if [[ "$FORCE" -eq 1 ]]; then
+        return 0
+    fi
+    log "Checking for required APT package: $1"
+    local pkg="$1"
+    local error_msg="${2:-Error: Required APT package '$pkg' not found. Please install it and try again.}"
+    if ! dpkg -s "$pkg" &> /dev/null; then
+        warn "APT package '$pkg' is not installed."
+        MISSING_APT_PACKAGES+=("$pkg")
+    fi
+}
+
+
+#########################################
+# Installs missing APT packages detected by require_apt_package function
+# Globals:
+#  MISSING_APT_PACKAGES
+# Arguments:
+#  yes - if true, it will skip confirmation and install the packages
+# Outputs:
+#  Installs all missing APT packages using apt-get
+#########################################
+install_missing_apt_packages() {
+    if [[ "${#MISSING_APT_PACKAGES[@]}" -eq 0 ]]; then
+        log "All required APT packages are already installed."
+        return 0
+    fi
+
+    log "The following APT packages are missing and need to be installed: ${MISSING_APT_PACKAGES[*]}"
+    if ! confirm "Do you want to install the missing APT packages?"; then
+        error "Cannot proceed without installing required APT packages. Exiting."
+        exit 1
+    fi
+
+    run "sudo apt-get update"
+    for pkg in "${MISSING_APT_PACKAGES[@]}"; do
+        run "sudo apt-get install -y $pkg"
+    done
+}
+
+########################################
+# Check if ZED SDK is installed and get its version
+# Globals:
+#  ZED_VERSION
+# Arguments:
+#  None
+# Outputs:
+#  Exits with an error message if ZED SDK is not found, otherwise sets ZED_VERSION variable
+########################################
+require_zedsdk() {
+    log "Checking for ZED SDK installation at /usr/local/zed..."
+    if [[ -f "/usr/local/zed/zed-config-version.cmake" ]]; then
+        ZED_VERSION=$(sudo cat /usr/local/zed/zed-config-version.cmake | grep "set(PACKAGE_VERSION \"" | sed -E 's/set\(PACKAGE_VERSION "(.*)"\)/\1/')
+        log "Found ZED SDK version $ZED_VERSION"
+        return 0
+    else
+        return 1
+    fi
+}
+
+########################################
+# Check if the ZED X daemon binary is present (indicates ZED driver is installed)
+# Globals:
+#  None
+# Arguments:
+#  None
+# Outputs:
+#  Returns 0 if found, 1 if not
+########################################
+require_zed_driver() {
+    log "Checking for ZED driver installation..."
+    if [[ -f "/usr/local/zed/zed_x_daemon" ]]; then
+        log "ZED driver found."
+        return 0
+    else
+        return 1
+    fi
+}
+
+#########################################
+# Check if a required APT repository is added, and if not, 
+# add it to the list of missing repositories
+# If $FORCE is true, it will skip the check and return success
+# Globals:
+#  MISSING_APT_REPOSITORIES
+#  FORCE
+# Arguments:
+    #  repo_name - The name of the repository to check for (used for error messages)
+    #  search_string - The string to search for in the repository file (used to
+    #                  check if the repository is added)
+# Outputs:
+#  Adds the missing repository to the MISSING_APT_REPOSITORIES array if not found
+#########################################
+require_apt_repository() {
+    if [[ "$FORCE" -eq 1 ]]; then
+        return 0
+    fi
+
+    local repo_name="$1"       # e.g., "ros2" or "docker"
+    local search_string="$2"   # e.g., "packages.ros.org/ros2" or "download.docker.com"
+    
+    log "Checking for required APT repository: $repo_name"
+
+    # Define the likely paths where the repository file would live
+    local repo_file="/etc/apt/sources.list.d/${repo_name}.list"
+    local main_sources="/etc/apt/sources.list"
+    
+    # Check if the repository string exists and is NOT commented out
+    if grep -r -q "^deb.*$search_string" "$main_sources" /etc/apt/sources.list.d/ 2>/dev/null; then
+        log "Found APT repository '$repo_name' matches for '$search_string'."
+    else
+        warn "APT repository '$repo_name' is not added (could not find un-commented '$search_string' in sources)."
+        MISSING_APT_REPOSITORIES+=("$repo_name")
+    fi
+}
+
+#########################################
+# Check if the script is run as root
+# Globals:
+#  EUID
+# Arguments:
+#  None
+# Outputs:
+#  Exits with an error message if run as root
+#########################################
+require_non_root() {
+    if [[ "$EUID" -eq 0 ]]; then
+        echo "This script must not be run as root. Please use a regular user account." >&2
+        exit 1
+    fi
+}
+
+
+# Lockfile Utility >>>
+
+#######################################
+# Create lock file to prevent concurrent installations
+# Globals:
+#  LOCKFILE
+# Arguments:
+#  None
+# Outputs:
+#  Writes the current process ID to the lock file
+#######################################
+create_lock() {
+    log "Creating installation lock at $LOCKFILE..."
+    run 'echo "$$" > "$LOCKFILE"'    
+}
+
+#########################################
+# Remove lock file on exit
+# Globals:
+#  LOCKFILE
+# Arguments:
+#  None
+# Outputs:
+#  Removes the lock file
+#########################################
+cleanup() {
+    log "Cleaning up installation lock..."
+    run rm -f "$LOCKFILE"
+}
+
+# <<< Lockfile Utility
+
+# INSTALLATION PATHS AND CONFIGS >>>
+# Loon-Env must be installed to /opt/loon-env for the scripts to work properly. 
+# This is because some of the scripts rely on absolute paths to the installation directory. 
+# Changing this path may cause issues with the scripts and is not recommended unless you know what you're doing.
+LOON_ENV_FOLDER_DIR="/opt/loon-env"
+
+# This is the source directory for the scripts. 
+# THIS IS NOT THE LOCATION WHERE PATH SHOULD POINT TO FOR EXECUTING THE SCRIPTS.
+# LOON_ENV WILL MOVE THEM TO $SCRIPT_PATH FOR EXECUTION.
+# It should point to the src/tools/scripts directory in the Loon-Env repository.
+SCRIPTS_SOURCE="${LOON_ENV_FOLDER_DIR}/src/tools/scripts"
+
+# This is the path where the scripts will be installed for execution.
+SCRIPT_PATH="/usr/local/bin"
+
+# Deprecated: These paths are no longer used in the scripts
+# The scripts should be installed in your PATH
+# LOONTOOLS_INSTALL="/usr/local/bin/LoonTools"
+# LOONE_SCRIPT_INSTALL="/usr/local/bin/LoonE"
+# CONFIG_MTU_SCRIPT_INSTALL="/usr/local/bin/configMTU"
+
+ASSETS_DIR="${LOON_ENV_FOLDER_DIR}/src/assets"
+
+# Group name for permissions, should be created on the system and the user should be added to it for proper permissions
+GROUP_NAME="loon-env-users"

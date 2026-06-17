@@ -1,5 +1,5 @@
 #!/bin/bash
-#
+# Requires loon_hub dependency in PATH for shared variables and functions
 # The LoonE script is a convenient wrapper for managing the Docker environment for the Loon-E project.
 # Copyright (c) 2026 Carson Fujita
 #
@@ -21,9 +21,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+source loon_hub # Source the loon_hub script for shared variables and functions
+
 # Version
 APP_NAME="LoonE"
-VERSION="4.1.2"
 
 # Names for Docker images and containers
 ZED_IMAGE_NAME="zed-x"
@@ -36,91 +37,11 @@ ASSET_DIR="${LOONE_FILES_DIR:-/opt/loon-env/assets}"
 LOONE_WORKSPACE_DIR="${LOONE_WORKSPACE_DIR:-$HOME/LoonE_ws}"
 COMPOSE_FILE="$LOONE_WORKSPACE_DIR/docker/compose.yaml"
 
-# Colors for stdout
-PRIMARY=$(tput sgr0)
-RED=$(tput setaf 9)
-GREEN=$(tput setaf 2)
-YELLOW=$(tput setaf 3)
-ORANGE=$(tput setaf 202)
-BLUE=$(tput setaf 4)
-BOLD=$(tput bold)
-
 # Global variables for build options
 BUILD_PROFILE=""
 BUILD_NO_CACHE=0
-VERBOSE=0
-DRY_RUN=0
 SERVICES=() # List of services to target for start/stop/enter commands
 
-
-# >>> Utility Functions <<<
-
-#######################################
-# Logs to stdout if $VERBOSE true
-# Globals:
-# VERBOSE
-# GREEN
-# BOLD
-# PRIMARY
-# Arguments:
-#   $* - the msg
-# Returns:
-# Nothing
-#######################################
-log() {
-    if [[ "$VERBOSE" -eq 1 ]]; then
-        echo "${GREEN}${BOLD}[INFO] ${PRIMARY}$*"
-    fi
-}
-
-#######################################
-# Prints Error; does not exit
-# Globals:
-# RED
-# BOLD
-# PRIMARY
-# Arguments:
-#   $* - the msg
-# Returns:
-# Nothing
-#######################################
-error() {
-    echo "${RED}${BOLD}[ERROR] ${PRIMARY}$*" >&2
-}
-
-#######################################
-# Prints warning
-# Globals:
-# ORANGE
-# BOLD
-# PRIMARY
-# Arguments:
-#   $* - the msg
-# Returns:
-# Nothing
-#######################################
-warn() {
-    echo "${ORANGE}${BOLD}[WARN] ${PRIMARY}$*" >&2
-}
-
-#######################################
-# Runs a command unless $DRY_RUN is true then it prints it to sdtout
-# Globals:
-# YELLOW
-# BOLD
-# PRIMARY
-# Arguments:
-#   $1 - the command
-# Returns:
-# Either the string of the command or executes the command with eval
-#######################################
-run() {
-    if [[ "$DRY_RUN" -eq 1 ]]; then
-        echo "${YELLOW}${BOLD}[DRY RUN] ${PRIMARY} $*"
-    else
-        eval "$@"
-    fi
-}
 
 ################################
 # Parses service targets from command-line arguments
@@ -333,14 +254,14 @@ EOF
 ###############################
 # Display version information
 # Globals:
-#  VERSION
+#  LOON_E_VERSION
 # Arguments:
 #  None
 # Outputs:
 #  Prints version information to stdout
 ###############################
 version() {
-    echo "$APP_NAME version $VERSION"
+    echo "$APP_NAME version $LOON_E_LOON_E_VERSION"
 }
 
 ###############################
