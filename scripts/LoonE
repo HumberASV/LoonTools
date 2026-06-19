@@ -117,7 +117,7 @@ is_service_running() {
             ;;
     esac
     
-    return $(docker ps --filter "status=running" | grep -q "$container_name")
+    docker ps --filter "status=running" | grep -q "$container_name"
 }
 
 ################################
@@ -261,7 +261,7 @@ EOF
 #  Prints version information to stdout
 ###############################
 version() {
-    echo "$APP_NAME version $LOON_E_LOON_E_VERSION"
+    echo "$APP_NAME version $LOON_E_VERSION"
 }
 
 ###############################
