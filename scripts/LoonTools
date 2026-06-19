@@ -158,7 +158,7 @@ init_status_map() {
 #######################################
 declare -A REQUIRED_VARIABLES
 REQUIRED_VARIABLES=(
-    ["RMW_IMPLEMENTATION"]="rmw_cyclonedds_cpp"
+    ["RMW_IMPLEMENTATION"]="rmw_fastrtps_cpp"
     ["ROS_DOMAIN_ID"]="0"
     ["ROS_LOCALHOST_ONLY"]="0"
     ["ZED_SDK_VERSION"]="5.2.3"
@@ -167,7 +167,6 @@ REQUIRED_VARIABLES=(
     ["XAUTHORITY"]="/home/$USER/.Xauthority"
     ["DISPLAY"]=":0"
     ["COLCON_PREFIX_PATH"]=null
-    ["CYCLONEDDS_URI"]="file:///opt/cyclonedds.xml"
 )
 
 #######################################
@@ -458,6 +457,15 @@ parse_l4t_version(){
 ########################################
 check_variables(){
     log "Checking required environment variables..."
+
+    # If CycloneDDS is active, also verify its URI is configured
+    local active_rmw
+    active_rmw=$(printenv "RMW_IMPLEMENTATION" 2>/dev/null)
+    if [[ "$active_rmw" == "rmw_cyclonedds_cpp" ]]; then
+        REQUIRED_VARIABLES["CYCLONEDDS_URI"]="file:///opt/cyclonedds.xml"
+        REQUIRED_VARIABLE_STATUS["CYCLONEDDS_URI"]="$NOT_CHECKED"
+    fi
+
     for var in "${!REQUIRED_VARIABLES[@]}"; do
         log "Checking variable $BLUE $var $PRIMARY..."
         local expected_value="${REQUIRED_VARIABLES[$var]}"
@@ -466,7 +474,6 @@ check_variables(){
 
         if [[ "$expected_value" == "$actual_value" ]]; then
             log "Variable $GREEN $var $PRIMARY is valid."
-            
             REQUIRED_VARIABLE_STATUS[$var]="$VALID"
         elif [[ -z "$actual_value" ]]; then
             log "Variable $RED $var $PRIMARY is missing."
