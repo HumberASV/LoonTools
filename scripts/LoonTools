@@ -838,8 +838,8 @@ parse_functional_arguments(){
 
 # >>> MAIN <<< #
 main () {
-    parse_runtime_arguments $@
-    
+    parse_runtime_arguments "$@"
+
     log "Checking for existing installation lock..."
 
     # Check for existing installation lock
@@ -857,8 +857,8 @@ main () {
     trap cleanup EXIT
 
     # Code for processes go after here
-    parse_functional_arguments ${@:SHIFT_ARGS_BY}
+    parse_functional_arguments "${@:SHIFT_ARGS_BY}"
 }
 
 
-main $@
+main "$@"
