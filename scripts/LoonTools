@@ -32,15 +32,13 @@ IFS=$'\n\t' # Handle spaces in filenames
 
 # Script Constants >>>
 
-LOON_TOOLS_VERSION=1.0.0
-
 # Installation paths and names
 GROUP_NAME="loon-env-users"
 PATH_INSTALL="/opt/loon-env"
-LOONE_SCRIPT_INSTALL="/usr/local/bin/LoonE"
+LOONDOCK_SCRIPT_INSTALL="/usr/local/bin/LoonDock"
 CONFIG_MTU_SCRIPT_INSTALL="/usr/local/bin/configMTU"
 SCRIPTS_SOURCE="./src/scripts"
-LOONE_SOURCE=$SCRIPTS_SOURCE/LoonE
+LOONDOCK_SOURCE=$SCRIPTS_SOURCE/LoonDock
 ASSETS_DIR="./src/assets"
 WORKSPACE_DIR="$HOME/LoonE_ws"
 GROUP_NAME="loon-env-users"

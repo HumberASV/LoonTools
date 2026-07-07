@@ -1,6 +1,6 @@
 #!/bin/bash
 # Requires loon_hub dependency in PATH for shared variables and functions
-# The LoonE script is a convenient wrapper for managing the Docker environment for the Loon-E project.
+# The LoonDock script is a convenient wrapper for managing the Docker environment for the Loon-E project.
 # Copyright (c) 2026 Carson Fujita
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,7 +24,7 @@
 source loon_hub # Source the loon_hub script for shared variables and functions
 
 # Version
-APP_NAME="LoonE"
+APP_NAME="LoonDock"
 
 # Names for Docker images and containers
 ZED_IMAGE_NAME="zed-x"
@@ -168,10 +168,10 @@ check_mtu_warn(){
 ###############################
 help() {
     cat <<EOF
-${BOLD}Usage: LoonE ${YELLOW}[OPTIONS]
+${BOLD}Usage: LoonDock ${YELLOW}[OPTIONS]
 
 ${PRIMARY}
-The LoonE script is a convenient wrapper for managing the Docker environment for the Loon-E project. 
+The LoonDock script is a convenient wrapper for managing the Docker environment for the Loon-E project.
 It can build the Docker image, start the container, and enter it with a single command. :)
 
 Options:${YELLOW}
@@ -221,7 +221,7 @@ about(){
         cat <<'EOF'
     FAQ - Frequently Asked Questions about Loon-E
     Topics:
-        1: What is LoonE?
+        1: What is LoonDock?
         2: What is Loon-E?
         3: What is Loon-Env?
         4: What about the ducks?
@@ -229,7 +229,7 @@ EOF
         read -p "Enter the number of the topic you want to learn about (or 'q' to quit): " choice
         case "$choice" in
             1)
-                echo "LoonE is the name of this script, which serves as a convenient wrapper for managing the Docker environment for the Loon-E project. It can build the Docker image, start the container, and enter it with a single command."
+                echo "LoonDock is the name of this script, which serves as a convenient wrapper for managing the Docker environment for the Loon-E project. It can build the Docker image, start the container, and enter it with a single command."
                 ;;
             2)
                 echo "Learn about Loon-E on https://humberasv.ca"
@@ -254,14 +254,14 @@ EOF
 ###############################
 # Display version information
 # Globals:
-#  LOON_E_VERSION
+#  LOONDOCK_VERSION
 # Arguments:
 #  None
 # Outputs:
 #  Prints version information to stdout
 ###############################
 version() {
-    echo "$APP_NAME version $LOON_E_VERSION"
+    echo "$APP_NAME version $LOONDOCK_VERSION"
 }
 
 ###############################
