@@ -395,19 +395,22 @@ enter() {
 }
 
 ################################
-# Build Docker images for specified services
+# Build Docker images for specified services. The build profile checks out
+# the matching branch on the host's live zed_ros2_wrapper clone before
+# building, since the wrapper source is bind-mounted rather than baked in.
 # Globals:
 #  SERVICES - An array of services to build
+#  LOONE_WORKSPACE_DIR - Workspace dir containing the live zed_ws clone
 # Arguments:
 # virtual or zedx - Mandatory argument specifying the build profile to use (e.g., virtual or zedx)
 # with_cache - Mandatory 1 or 0 to specify whether to use Docker build cache
 # target_services - An array of services to build (e.g., zed, loone, all)
 # Outputs:
-#  Builds the Docker images for the specified services using the specified build profile and cache options
+#  Checks out the build profile branch, then builds the Docker images for the specified services
 ##################################
 build() {
     log "Received build command with arguments: $*"
-    local profile=""
+    local wrapper_ref=""
     local with_cache=1
 
     if [ "$#" -eq 0 ]; then
@@ -429,29 +432,37 @@ build() {
     fi
 
     if [[ "$1" == --virtual || "$1" == -v ]]; then
-        profile="ZED_WRAPPER_GIT_REF=virtual"
+        wrapper_ref="virtual"
         log "Set build profile to 'virtual'"
 
     elif [[ "$1" == --hardware || "$1" == -h ]]; then
-        profile="ZED_WRAPPER_GIT_REF=zedx"
+        wrapper_ref="zedx"
         log "Set build profile to 'zedx'"
     else
         error "Build profile is required. Please specify either '--virtual' or '--hardware'."
         return 1
     fi
 
+    # Nothing clones at image-build time anymore (see docker/Zedx/Dockerfile) -
+    # the wrapper source is the live host clone bind-mounted into the
+    # container, so the build profile means "check out this branch on that
+    # clone before building" rather than a Docker build-arg.
+    local wrapper_dir="$LOONE_WORKSPACE_DIR/zed_ws/src/zed_ros2_wrapper"
+    log "Checking out '$wrapper_ref' on $wrapper_dir for the build profile..."
+    run "git -C '$wrapper_dir' fetch --all && git -C '$wrapper_dir' checkout '$wrapper_ref'"
+
     target_services "${@:2}"
     log "Target services to build: ${SERVICES[*]}"
-    
+
     for service in "${SERVICES[@]}"; do
         case "$service" in
             zed)
-                log "Building ZED wrapper service image with profile '$profile' and cache option '$with_cache'..."
-                run "docker compose -f $COMPOSE_FILE build $( [ $with_cache -eq 0 ] && echo '--no-cache' ) --build-arg $profile zed"
+                log "Building ZED wrapper service image with cache option '$with_cache'..."
+                run "docker compose -f $COMPOSE_FILE build $( [ $with_cache -eq 0 ] && echo '--no-cache' ) zed"
                 ;;
             loone)
-                log "Building Loon-E service image with profile '$profile' and cache option '$with_cache'..."
-                run "docker compose -f $COMPOSE_FILE build $( [ $with_cache -eq 0 ] && echo '--no-cache' ) --build-arg $profile loone"
+                log "Building Loon-E service image with cache option '$with_cache'..."
+                run "docker compose -f $COMPOSE_FILE build $( [ $with_cache -eq 0 ] && echo '--no-cache' ) loone"
                 ;;
             *)
                 error "Unknown service '$service' passed to build function."
