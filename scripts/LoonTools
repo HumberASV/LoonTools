@@ -66,18 +66,27 @@ INVALID=1
 VALID=2
 NOT_CHECKED=3
 
-# List of required commands for LoonE to function
+# List of required commands for LoonE to function.
+# These must be executables on PATH - do NOT put package names here (e.g.
+# "ca-certificates" and "gnupg" are packages, they ship no command of that
+# name; the command gnupg provides is "gpg", and lsb-release provides
+# "lsb_release"). Package-level checks belong in required_apt_packages_list.
 required_commands_list=(
     "apt-get"
-    "ca-certificates"
     "curl"
-    "gnupg"
     "gpg"
-    "lsb-release"
+    "lsb_release"
     "wget"
     "git"
+)
+
+# Commands that are expected but whose absence is not fatal - these are
+# context dependent (host vs container, Jetson vs dev box) and report WARN
+optional_commands_list=(
     "nvidia-smi"
     "colcon"
+    "i2cdetect"
+    "adb"
 )
 
 # List of required apt packages for LoonE to function
@@ -115,11 +124,59 @@ required_apt_packages_list=(
     "python3-ntplib"
     "ros-humble-launch-pytest"
     "ros-humble-nav2-rviz-plugins"
+    "android-tools-adb"
+)
+
+# Jetson/L4T specific packages. These do not exist on a dev workstation, so
+# they are reported as SKIP off-Jetson rather than MISSING.
+jetson_apt_packages_list=(
     "nvidia-jetpack"
     "pva-allow-2"
-    "android-tools-adb"
-    "adafruit-circuitpython-motor"
-    "adafruit-circuitpython-pca9685"
+)
+
+# ROS 2 runtime packages required by the Loon-E stack. Sourced from
+# loone/package.xml - these live inside the container, so they are only
+# checked when a ROS 2 install is actually present.
+ros_apt_packages_list=(
+    # Core ROS
+    "ros-humble-rclcpp"
+    "ros-humble-rclpy"
+    # nav2 stack
+    "ros-humble-navigation2"
+    "ros-humble-nav2-bringup"
+    "ros-humble-nav2-regulated-pure-pursuit-controller"
+    # ros2_control chain
+    "ros-humble-ros2-control"
+    "ros-humble-ros2-controllers"
+    "ros-humble-forward-command-controller"
+    "ros-humble-joint-state-broadcaster"
+    "ros-humble-topic-based-ros2-control"
+    # Robot description
+    "ros-humble-robot-state-publisher"
+    "ros-humble-tf2-ros"
+    "ros-humble-xacro"
+    # Perception
+    "ros-humble-slam-toolbox"
+    "ros-humble-depthimage-to-laserscan"
+    # ZED
+    "ros-humble-zed-msgs"
+    "ros-humble-zed-wrapper"
+)
+
+# Superseded by the nav2 stack - absence is expected, presence is harmless
+ros_legacy_apt_packages_list=(
+    "ros-humble-turtlebot3-bringup"
+    "ros-humble-turtlebot3-navigation2"
+)
+
+# Python modules the stack imports at runtime, as "module:pip-package".
+# These are pip installs, not apt packages - checking them with dpkg would
+# fail unconditionally.
+required_pip_packages_list=(
+    "numpy:numpy"
+    "adafruit_motor:adafruit-circuitpython-motor"
+    "adafruit_pca9685:adafruit-circuitpython-pca9685"
+    "board:Adafruit-Blinka"
 )
 
 ################################
@@ -227,7 +284,8 @@ init_status_map "$NOT_CHECKED" FILE_STRUCTURE_STATUS "${!CORRECT_FILE_STRUCTURE[
 #  $VALID | $MISSING | $NOT_CHECKED
 #########################################
 declare -A required_commands
-init_status_map "$NOT_CHECKED" required_commands "${required_commands_list[@]}"
+init_status_map "$NOT_CHECKED" required_commands \
+    "${required_commands_list[@]}" "${optional_commands_list[@]}"
 
 #######################################
 # Required apt packages for LoonE to function
@@ -239,14 +297,98 @@ init_status_map "$NOT_CHECKED" required_commands "${required_commands_list[@]}"
 #  $VALID | $MISSING | $NOT_CHECKED
 #########################################
 declare -A REQUIRED_APT_PACKAGES
-init_status_map "$NOT_CHECKED" REQUIRED_APT_PACKAGES "${required_apt_packages_list[@]}"
+init_status_map "$NOT_CHECKED" REQUIRED_APT_PACKAGES \
+    "${required_apt_packages_list[@]}" "${jetson_apt_packages_list[@]}"
+
+# ROS Graph Expectations >>>
+
+#######################################
+# Nodes that must be live on the ROS graph for the stack to be functional.
+# A missing one of these is a hard failure.
+#######################################
+critical_nodes_list=(
+    "thrust_mixer"
+    "robot_state_publisher"
+    "joint_state_broadcaster"
+    "controller_manager"
+)
+
+#######################################
+# Nodes whose absence is reported as a warning, because they belong to a
+# subsystem that is legitimately brought up separately (nav2, ZED, SLAM).
+# Format: "node_name=reason shown when missing"
+#######################################
+declare -A OPTIONAL_NODES
+OPTIONAL_NODES=(
+    ["controller_server"]="nav2 may not be running"
+    ["planner_server"]="nav2 may not be running"
+    ["behavior_server"]="nav2 may not be running"
+    ["bt_navigator"]="nav2 may not be running"
+    ["smoother_server"]="nav2 may not be running"
+    ["velocity_smoother"]="nav2 may not be running"
+    ["waypoint_follower"]="nav2 may not be running"
+    ["zed_node"]="ZED camera may not be connected"
+    ["slam_toolbox"]="SLAM Toolbox may not be running"
+)
+
+#######################################
+# Topic chain for the chained-controls stack.
+# Format: "/topic"="expected_msg_type"
+#######################################
+declare -A TOPIC_CHAIN
+TOPIC_CHAIN=(
+    ["/scan"]="sensor_msgs/msg/LaserScan"
+    ["/map"]="nav_msgs/msg/OccupancyGrid"
+    ["/cmd_vel"]="geometry_msgs/msg/Twist"
+    ["/asv_forward_controller/commands"]="std_msgs/msg/Float64MultiArray"
+    ["/asv/joint_commands"]="sensor_msgs/msg/JointState"
+    ["/asv/joint_states"]="sensor_msgs/msg/JointState"
+    ["/joint_states"]="sensor_msgs/msg/JointState"
+    ["/zedx/zed_node/odom"]="nav_msgs/msg/Odometry"
+    ["/zedx/zed_node/diagnostics"]="diagnostic_msgs/msg/DiagnosticArray"
+)
+
+#######################################
+# TF frames that must resolve, as "parent:child" in chain order.
+# An array rather than a map because ordering matters for readability and
+# base_link appears as parent more than once.
+#######################################
+tf_chain_list=(
+    "map:odom"
+    "odom:zedx_camera_link"
+    "zedx_camera_link:base_link"
+    "base_link:prop_l_link"
+    "base_link:prop_r_link"
+    "base_link:rudder_link"
+)
+
+# Seconds to wait for a single TF lookup before calling it unreachable
+TF_LOOKUP_TIMEOUT=3
+
+#######################################
+# Parameters that must agree across nodes. A mismatch here means the mixer
+# and the driver disagree about neutral/centre/timeout, which is a live
+# safety issue - the dead-man switch would not behave as configured.
+# Format: "node_a.param_a"="node_b.param_b"
+#######################################
+declare -A CONSISTENT_PARAMS
+CONSISTENT_PARAMS=(
+    ["thrust_mixer.cmd_timeout"]="pca9685_driver.cmd_timeout"
+    ["thrust_mixer.prop_neutral"]="pca9685_driver.prop_neutral"
+    ["thrust_mixer.rudder_center"]="pca9685_driver.rudder_center"
+)
+
+# I2C bus and address the PCA9685 PWM driver is wired to
+I2C_BUS=1
+PCA9685_ADDRESS="40"
+
+# <<< ROS Graph Expectations
 
 # <<< Report constants
 
 # <<< Script Constants
 
 # Script Arguments >>>
-SHIFT_ARGS_BY=1 # Used for shifting arguements
 VERBOSE=0 # Verbose mode
 DRY_RUN=0 # Dry running (debug)
 IGNORE_DEFENSIVE_CHECKS=0 # Used to skip checks for advanced users who know what they are doing
@@ -288,6 +430,119 @@ print_map_status() {
         printf "%-30s %s\n" "$key" "${status_symbols[${map[$key]}]}"
     done
 }
+
+# Check Result Accumulator >>>
+
+# Running tallies for the diagnosis summary, populated by add_check
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+SKIP_COUNT=0
+
+##################################
+# Records the outcome of a single check and prints it.
+# Passing checks are only printed in verbose mode so that a healthy system
+# produces a short report and anything printed is worth reading.
+# Globals:
+#  PASS_COUNT, FAIL_COUNT, WARN_COUNT, SKIP_COUNT
+#  VERBOSE
+#  GREEN, RED, ORANGE, BLUE, PRIMARY
+# Arguments:
+#   $1 - status: PASS | FAIL | WARN | SKIP
+#   $2 - check name
+#   $3 - optional detail shown after the name
+# Outputs:
+#  Prints the check line to stdout (FAIL goes to stderr)
+##################################
+add_check() {
+    local status="$1"
+    local name="$2"
+    local detail="${3:-}"
+    local symbol colour
+
+    case "$status" in
+        PASS) symbol="✓"; colour="$GREEN";  PASS_COUNT=$((PASS_COUNT + 1)) ;;
+        FAIL) symbol="✗"; colour="$RED";    FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+        WARN) symbol="!"; colour="$ORANGE"; WARN_COUNT=$((WARN_COUNT + 1)) ;;
+        SKIP) symbol="-"; colour="$BLUE";   SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+        *)    symbol="?"; colour="$BLUE" ;;
+    esac
+
+    # Quiet runs only surface things that need attention
+    if [[ "$status" == "PASS" && "$VERBOSE" -ne 1 ]]; then
+        return 0
+    fi
+
+    local line="  ${colour}${symbol}${PRIMARY} ${name}"
+    [[ -n "$detail" ]] && line="${line} ${colour}(${detail})${PRIMARY}"
+
+    if [[ "$status" == "FAIL" ]]; then
+        echo "$line" >&2
+    else
+        echo "$line"
+    fi
+}
+
+##################################
+# Translates one of the legacy MISSING/INVALID/VALID/NOT_CHECKED status map
+# values into an add_check call, so the older checks feed the same summary.
+# Globals:
+#  MISSING, INVALID, VALID
+# Arguments:
+#   $1 - the legacy status value
+#   $2 - check name
+#   $3 - detail to show when the status is INVALID
+#   $4 - severity to use when not VALID: FAIL (default) | WARN | SKIP
+##################################
+add_check_from_status() {
+    local status="$1"
+    local name="$2"
+    local detail="${3:-}"
+    local severity="${4:-FAIL}"
+
+    # String comparison, not -eq: [[ -eq ]] evaluates arithmetically, which
+    # silently coerces an unset status to 0 and reports it as MISSING
+    if [[ "$status" == "$VALID" ]]; then
+        add_check PASS "$name"
+    elif [[ "$status" == "$MISSING" ]]; then
+        add_check "$severity" "$name" "missing"
+    elif [[ "$status" == "$INVALID" ]]; then
+        add_check "$severity" "$name" "$detail"
+    else
+        add_check SKIP "$name" "not checked"
+    fi
+}
+
+# <<< Check Result Accumulator
+
+# Environment Detection >>>
+
+##################################
+# Reports whether a usable ROS 2 install is present in this shell.
+# Used to decide between checking the ROS layers and skipping them, so that
+# running the doctor on the Jetson host does not emit a wall of failures
+# for packages that only ever live inside the container.
+# Globals:
+#  none
+# Returns:
+#  0 if ROS 2 is available, 1 otherwise
+##################################
+ros_available() {
+    command -v ros2 >/dev/null 2>&1
+}
+
+##################################
+# Reports whether this machine is Jetson/L4T hardware
+# Globals:
+#  none
+# Returns:
+#  0 if running on Jetson, 1 otherwise
+##################################
+is_jetson() {
+    [[ -f /etc/nv_tegra_release ]]
+}
+
+# <<< Environment Detection
 
 
 
@@ -358,6 +613,35 @@ restart_zed_daemon(){
 
 
 ###################################
+# Reports the zed daemon status without touching it.
+# The diagnosis path uses this rather than check_zed_daemon: a doctor should
+# describe the system, not restart services underneath the operator while
+# they are trying to work out what is wrong.
+# Globals:
+# Arguments:
+#   None
+# Outputs:
+#  One check for the daemon state
+###################################
+check_zed_daemon_status(){
+    if ! require_zed_driver; then
+        add_check SKIP "zed daemon" "ZED driver not installed here"
+        return 0
+    fi
+
+    local status
+    status=$(get_zed_daemon_status)
+    case "$status" in
+        online)
+            add_check PASS "zed daemon" ;;
+        restarting)
+            add_check WARN "zed daemon" "still starting up" ;;
+        *)
+            add_check FAIL "zed daemon" "$status - run 'LoonTools --restart-zed' to recover" ;;
+    esac
+}
+
+###################################
 # Checks if zed daemon is online and attempts to restart if not
 # Globals:
 # Arguments:
@@ -367,25 +651,27 @@ restart_zed_daemon(){
 ###################################
 check_zed_daemon(){
     local status=$(get_zed_daemon_status)
-    if [[ "$status" != "online" ]]; then
-        warn "Zed Daemon is not online. Attempting to restart..."
-        for i in {1..3}; do
-            log "Restart attempt $i..."
-            restart_zed_daemon
-            sleep 5 # Wait for a few seconds to allow the service to restart
-            status=$(get_zed_daemon_status)
-            if [[ "$status" != "online" ]]; then
-                error "Failed to restart Zed Daemon. Current status: $status"
-                continue
-            else
-                log "Zed Daemon restarted successfully and is now online."
-                return 0
-            fi
-        done
-    else
+    if [[ "$status" == "online" ]]; then
         log "Zed Daemon is online."
         return 0
     fi
+
+    warn "Zed Daemon is not online. Attempting to restart..."
+    for i in {1..3}; do
+        log "Restart attempt $i..."
+        restart_zed_daemon
+        sleep 5 # Wait for a few seconds to allow the service to restart
+        status=$(get_zed_daemon_status)
+        if [[ "$status" == "online" ]]; then
+            log "Zed Daemon restarted successfully and is now online."
+            return 0
+        fi
+        error "Failed to restart Zed Daemon. Current status: $status"
+    done
+
+    # Fall through means all three attempts failed - report it, rather than
+    # returning the exit status of `continue` and looking like a success
+    return 1
 }
 
 #######################################
@@ -546,72 +832,232 @@ check_file_structure(){
 # Diagnosis Functions >>>
 
 ########################################
-# Runs all diagnosis functions and prints results to stdout
+# Runs every diagnosis layer and prints a report.
+# Layers run from the outside in: system prerequisites first, then the ROS
+# graph, then the hardware, so that the first failure printed is usually the
+# root cause rather than a downstream symptom.
 # Globals:
-#  none
+#  FAIL_COUNT, PASS_COUNT, WARN_COUNT, SKIP_COUNT
 # Arguments:
 #  none
 # Outputs:
-# Prints results of diagnosis functions to stdout and exits with error if any problems are detected
+#  Prints results to stdout, failures to stderr
+# Returns:
+#  0 if no check failed, 1 otherwise
 ########################################
 diagnose_problems(){
-    check_variables
-    check_file_structure
-    check_apt_packages
-    check_commands
-    check_zed_daemon
-    # Print summary of results
-    echo "Diagnosis Summary:"
+    echo "${BOLD}Loon-E Doctor - system health check${PRIMARY}"
+    [[ "$VERBOSE" -ne 1 ]] && echo "(passing checks hidden, run with -v to show them)"
+    echo
 
+    # Layer 0 - System prerequisites
     echo "${BOLD}Environment Variables:${PRIMARY}"
-    for var in "${!REQUIRED_VARIABLES[@]}"; do
-        local status="${REQUIRED_VARIABLE_STATUS[$var]}"
-        if [[ "$status" -eq "$VALID" ]]; then
-            echo "  $GREEN $var: Valid $PRIMARY"
-        elif [[ "$status" -eq "$MISSING" ]]; then
-            echo "  $RED $var: Missing $PRIMARY"
-        elif [[ "$status" -eq "$INVALID" ]]; then
-            echo "  $ORANGE $var: Invalid (actual value: ${!var}) $PRIMARY"
-        else
-            echo "  $YELLOW $var: Not Checked $PRIMARY"
-        fi
-    done
+    check_variables
+    report_variables
 
     echo "${BOLD}File Structure:${PRIMARY}"
-    for path in "${!CORRECT_FILE_STRUCTURE[@]}"; do
-        local status="${FILE_STRUCTURE_STATUS[$path]}"
-        if [[ "$status" -eq "$VALID" ]]; then
-            echo "  $GREEN $path: Valid $PRIMARY"
-        elif [[ "$status" -eq "$MISSING" ]]; then
-            echo "  $RED $path: Missing $PRIMARY"
-        elif [[ "$status" -eq "$INVALID" ]]; then
-            echo "  $ORANGE $path: Invalid (expected type: ${CORRECT_FILE_STRUCTURE[$path]}) $PRIMARY"
-        else
-            echo "  $YELLOW $path: Not Checked $PRIMARY"
-        fi
-    done
+    check_file_structure
+    report_file_structure
 
     echo "${BOLD}Commands:${PRIMARY}"
-    for cmd in "${!required_commands[@]}"; do
-        local status="${required_commands[$cmd]}"
-        if [[ "$status" -eq "$VALID" ]]; then
-            echo "  $GREEN $cmd: Available $PRIMARY"
-        elif [[ "$status" -eq "$MISSING" ]]; then
-            echo "  $RED $cmd: Missing $PRIMARY"
+    check_commands
+    report_commands
+
+    echo "${BOLD}APT Packages:${PRIMARY}"
+    check_apt_packages
+    report_apt_packages
+    check_ros_apt_packages
+
+    echo "${BOLD}Python Packages:${PRIMARY}"
+    check_pip_packages
+
+    # Layer 1 - ROS 2 node liveness
+    echo "${BOLD}ROS Nodes:${PRIMARY}"
+    check_nodes_alive
+
+    # Layer 2 - Topics
+    echo "${BOLD}ROS Topics:${PRIMARY}"
+    check_topics_present
+
+    # Layer 3 - TF tree
+    echo "${BOLD}TF Tree:${PRIMARY}"
+    check_tf_chain
+
+    # Layer 4/5 - Parameter consistency and control watchdogs
+    echo "${BOLD}Parameter Consistency:${PRIMARY}"
+    check_parameter_consistency
+
+    # Layer 6 - Peripherals
+    echo "${BOLD}ZED Camera:${PRIMARY}"
+    check_zed_daemon_status
+    check_mtu
+    report_mtu
+
+    echo "${BOLD}Hardware:${PRIMARY}"
+    check_hardware
+
+    print_diagnosis_summary
+}
+
+########################################
+# Prints the tally of every check recorded this run
+# Globals:
+#  PASS_COUNT, FAIL_COUNT, WARN_COUNT, SKIP_COUNT
+# Arguments:
+#  none
+# Outputs:
+#  Prints the summary line
+# Returns:
+#  0 if no check failed, 1 otherwise
+########################################
+print_diagnosis_summary(){
+    echo
+    echo "${BOLD}Summary:${PRIMARY} ${GREEN}${PASS_COUNT} passed${PRIMARY}, ${RED}${FAIL_COUNT} failed${PRIMARY}, ${ORANGE}${WARN_COUNT} warnings${PRIMARY}, ${BLUE}${SKIP_COUNT} skipped${PRIMARY}"
+
+    if [[ "$FAIL_COUNT" -gt 0 ]]; then
+        error "$FAIL_COUNT check(s) failed - review the details above."
+        return 1
+    fi
+
+    echo "${GREEN}${BOLD}All critical checks passed.${PRIMARY}"
+    return 0
+}
+
+########################################
+# Reports the outcome of check_variables.
+# A wrong ROS_DOMAIN_ID or RMW_IMPLEMENTATION makes every node, topic and TF
+# check fail at once, so these are reported as hard failures and printed
+# first - they are the usual root cause of an apparently dead graph.
+# Globals:
+#  REQUIRED_VARIABLES, REQUIRED_VARIABLE_STATUS
+# Arguments:
+#  none
+########################################
+report_variables(){
+    for var in "${!REQUIRED_VARIABLES[@]}"; do
+        add_check_from_status "${REQUIRED_VARIABLE_STATUS[$var]}" \
+            "env: $var" \
+            "expected '${REQUIRED_VARIABLES[$var]}', got '$(printenv "$var" 2>/dev/null)'"
+    done
+}
+
+########################################
+# Reports the outcome of check_file_structure
+# Globals:
+#  CORRECT_FILE_STRUCTURE, FILE_STRUCTURE_STATUS
+# Arguments:
+#  none
+########################################
+report_file_structure(){
+    for path in "${!CORRECT_FILE_STRUCTURE[@]}"; do
+        local expected="directory"
+        [[ "${CORRECT_FILE_STRUCTURE[$path]}" == "$FILE_TYPE" ]] && expected="file"
+        add_check_from_status "${FILE_STRUCTURE_STATUS[$path]}" \
+            "path: $path" \
+            "expected a $expected"
+    done
+}
+
+########################################
+# Reports the outcome of check_commands
+# Globals:
+#  required_commands, optional_commands_list
+# Arguments:
+#  none
+########################################
+report_commands(){
+    for cmd in "${required_commands_list[@]}"; do
+        add_check_from_status "${required_commands[$cmd]}" "cmd: $cmd"
+    done
+    # Optional tooling degrades to a warning - i2cdetect and adb are only
+    # meaningful on the SBC, colcon only inside the build container
+    for cmd in "${optional_commands_list[@]}"; do
+        add_check_from_status "${required_commands[$cmd]}" "cmd: $cmd" "" "WARN"
+    done
+}
+
+########################################
+# Reports the outcome of check_apt_packages, including the Jetson-only
+# packages which are skipped rather than failed on a dev workstation
+# Globals:
+#  required_apt_packages_list, jetson_apt_packages_list, REQUIRED_APT_PACKAGES
+# Arguments:
+#  none
+########################################
+report_apt_packages(){
+    for pkg in "${required_apt_packages_list[@]}"; do
+        add_check_from_status "${REQUIRED_APT_PACKAGES[$pkg]}" "apt: $pkg"
+    done
+
+    for pkg in "${jetson_apt_packages_list[@]}"; do
+        if ! is_jetson; then
+            add_check SKIP "apt: $pkg" "Jetson only, not L4T hardware"
         else
-            echo "  $YELLOW $cmd: Not Checked $PRIMARY"
+            add_check_from_status "${REQUIRED_APT_PACKAGES[$pkg]}" "apt: $pkg"
+        fi
+    done
+}
+
+########################################
+# Checks the ROS 2 runtime packages the Loon-E stack depends on.
+# Skipped wholesale when ROS is not installed, since on the Jetson host the
+# entire ROS stack lives inside the container.
+# Globals:
+#  ros_apt_packages_list, ros_legacy_apt_packages_list
+# Arguments:
+#  none
+########################################
+check_ros_apt_packages(){
+    if ! ros_available; then
+        add_check SKIP "apt: ROS 2 runtime packages" "no ROS 2 install here, expected inside the container"
+        return 0
+    fi
+
+    for pkg in "${ros_apt_packages_list[@]}"; do
+        log "Checking ROS package $BLUE $pkg $PRIMARY..."
+        if dpkg -s "$pkg" >/dev/null 2>&1; then
+            add_check PASS "apt: $pkg"
+        else
+            add_check FAIL "apt: $pkg" "not installed"
         fi
     done
 
-    echo "${BOLD}APT Packages:${PRIMARY}"
-    for pkg in "${!REQUIRED_APT_PACKAGES[@]}"; do
-        local status="${REQUIRED_APT_PACKAGES[$pkg]}"
-        if [[ "$status" -eq "$VALID" ]]; then
-            echo "  $GREEN $pkg: Installed $PRIMARY"
-        elif [[ "$status" -eq "$MISSING" ]]; then
-            echo "  $RED $pkg: Missing $PRIMARY"
+    for pkg in "${ros_legacy_apt_packages_list[@]}"; do
+        if dpkg -s "$pkg" >/dev/null 2>&1; then
+            add_check PASS "apt: $pkg" "legacy, superseded by nav2"
         else
-            echo "  $YELLOW $pkg: Not Checked $PRIMARY"
+            add_check SKIP "apt: $pkg" "legacy, no longer required"
+        fi
+    done
+}
+
+########################################
+# Checks that the Python modules the stack imports are importable.
+# Importing is the check that matters rather than asking pip, because the
+# node fails on ImportError regardless of what pip's metadata claims.
+# Globals:
+#  required_pip_packages_list
+# Arguments:
+#  none
+########################################
+check_pip_packages(){
+    log "Checking for required Python modules..."
+
+    local python_bin
+    python_bin=$(command -v python3 || true)
+    if [[ -z "$python_bin" ]]; then
+        add_check FAIL "python3" "not on PATH, cannot check Python modules"
+        return 0
+    fi
+
+    for entry in "${required_pip_packages_list[@]}"; do
+        local module="${entry%%:*}"
+        local pkg="${entry##*:}"
+        log "Checking module $BLUE $module $PRIMARY..."
+        if "$python_bin" -c "import $module" >/dev/null 2>&1; then
+            add_check PASS "pip: $pkg ($module)"
+        else
+            add_check FAIL "pip: $pkg ($module)" "import failed, try 'pip install $pkg'"
         fi
     done
 }
@@ -645,6 +1091,311 @@ check_commands(){
 }
 
 ########################################
+# Layer 1 - Checks that the expected nodes are live on the ROS graph.
+# Globals:
+#  critical_nodes_list, OPTIONAL_NODES
+# Arguments:
+#  none
+# Outputs:
+#  One check per expected node
+########################################
+check_nodes_alive(){
+    if ! ros_available; then
+        add_check SKIP "ROS node liveness" "ros2 not on PATH, is the workspace sourced?"
+        return 0
+    fi
+
+    log "Listing live ROS nodes..."
+    local node_list
+    node_list=$(timeout 10 ros2 node list 2>/dev/null || true)
+
+    if [[ -z "$node_list" ]]; then
+        add_check FAIL "ROS graph" "no nodes visible - nothing is running, or ROS_DOMAIN_ID/RMW_IMPLEMENTATION disagree with the stack"
+        return 0
+    fi
+
+    for node in "${critical_nodes_list[@]}"; do
+        if node_is_alive "$node" "$node_list"; then
+            add_check PASS "node: $node"
+        else
+            add_check FAIL "node: $node" "not found on the graph"
+        fi
+    done
+
+    for node in "${!OPTIONAL_NODES[@]}"; do
+        if node_is_alive "$node" "$node_list"; then
+            add_check PASS "node: $node"
+        else
+            add_check WARN "node: $node" "${OPTIONAL_NODES[$node]}"
+        fi
+    done
+}
+
+########################################
+# Determines whether a node name appears in a `ros2 node list` listing.
+# Matches on the trailing path segment so that a namespaced node such as
+# /zedx/zed_node satisfies a check for zed_node, without a bare substring
+# match letting an unrelated node with a similar name pass.
+# Globals:
+#  none
+# Arguments:
+#  $1 - node name to look for
+#  $2 - newline separated `ros2 node list` output
+# Returns:
+#  0 if the node is live, 1 otherwise
+########################################
+node_is_alive(){
+    local wanted="$1"
+    local listing="$2"
+    local line
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        [[ "${line##*/}" == "$wanted" ]] && return 0
+    done <<< "$listing"
+
+    return 1
+}
+
+########################################
+# Layer 2 - Checks the topic chain exists and carries the expected types.
+# A topic that exists with the wrong type is a warning rather than a
+# failure: it usually means a remap is stale rather than the node being dead.
+# Globals:
+#  TOPIC_CHAIN
+# Arguments:
+#  none
+# Outputs:
+#  One check per expected topic
+########################################
+check_topics_present(){
+    if ! ros_available; then
+        add_check SKIP "ROS topics" "ros2 not on PATH, is the workspace sourced?"
+        return 0
+    fi
+
+    log "Listing ROS topics..."
+    # `ros2 topic list -t` prints "/topic [pkg/msg/Type]"
+    local topic_list
+    topic_list=$(timeout 10 ros2 topic list -t 2>/dev/null || true)
+
+    if [[ -z "$topic_list" ]]; then
+        add_check FAIL "ROS topics" "no topics visible on the graph"
+        return 0
+    fi
+
+    for topic in "${!TOPIC_CHAIN[@]}"; do
+        local expected="${TOPIC_CHAIN[$topic]}"
+        local actual
+        actual=$(topic_type "$topic" "$topic_list")
+
+        if [[ -z "$actual" ]]; then
+            add_check FAIL "topic: $topic" "not found on the graph"
+        elif [[ "$actual" == "$expected" ]]; then
+            add_check PASS "topic: $topic (${expected##*/})"
+        else
+            add_check WARN "topic: $topic" "expected $expected, got $actual"
+        fi
+    done
+}
+
+########################################
+# Extracts the message type of a topic from `ros2 topic list -t` output
+# Globals:
+#  none
+# Arguments:
+#  $1 - topic name
+#  $2 - newline separated `ros2 topic list -t` output
+# Outputs:
+#  The message type, or nothing if the topic is absent
+########################################
+topic_type(){
+    local wanted="$1"
+    local listing="$2"
+    local line
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local name="${line%% *}"
+        if [[ "$name" == "$wanted" ]]; then
+            # Strip everything up to the opening bracket, then the closing one
+            local type="${line#*[}"
+            echo "${type%]*}"
+            return 0
+        fi
+    done <<< "$listing"
+
+    return 0
+}
+
+########################################
+# Layer 3 - Checks that each transform in the chain resolves.
+# tf2_echo runs until interrupted, so it is bounded by timeout and judged on
+# whether it managed to print a transform before being killed.
+# Globals:
+#  tf_chain_list, TF_LOOKUP_TIMEOUT
+# Arguments:
+#  none
+# Outputs:
+#  One check per parent/child pair
+########################################
+check_tf_chain(){
+    if ! ros_available; then
+        add_check SKIP "TF tree" "ros2 not on PATH, is the workspace sourced?"
+        return 0
+    fi
+
+    for pair in "${tf_chain_list[@]}"; do
+        local parent="${pair%%:*}"
+        local child="${pair##*:}"
+        log "Looking up transform $BLUE $parent -> $child $PRIMARY..."
+
+        local output
+        output=$(timeout "$TF_LOOKUP_TIMEOUT" ros2 run tf2_ros tf2_echo "$parent" "$child" 2>&1 || true)
+
+        # tf2_echo prints a Translation block once the lookup succeeds and
+        # otherwise repeats a lookup failure message until it is killed
+        if [[ "$output" == *"Translation"* ]]; then
+            add_check PASS "tf: $parent -> $child"
+        elif [[ "$output" == *"does not exist"* || "$output" == *"Invalid frame"* ]]; then
+            add_check FAIL "tf: $parent -> $child" "frame does not exist"
+        else
+            add_check FAIL "tf: $parent -> $child" "no transform after ${TF_LOOKUP_TIMEOUT}s"
+        fi
+    done
+}
+
+########################################
+# Layer 4/5 - Checks that paired parameters agree across nodes, which is
+# also the control loop watchdog check: cmd_timeout is the dead-man switch,
+# and a mismatch between the mixer and the driver means the boat keeps
+# driving for longer than the mixer believes it will.
+# Globals:
+#  CONSISTENT_PARAMS
+# Arguments:
+#  none
+# Outputs:
+#  One check per parameter pair
+########################################
+check_parameter_consistency(){
+    if ! ros_available; then
+        add_check SKIP "parameter consistency" "ros2 not on PATH, is the workspace sourced?"
+        return 0
+    fi
+
+    for left in "${!CONSISTENT_PARAMS[@]}"; do
+        local right="${CONSISTENT_PARAMS[$left]}"
+        local node_a="${left%%.*}"  param_a="${left##*.}"
+        local node_b="${right%%.*}" param_b="${right##*.}"
+        local label="param: ${left} == ${right}"
+
+        local val_a val_b
+        val_a=$(get_ros_param "$node_a" "$param_a")
+        val_b=$(get_ros_param "$node_b" "$param_b")
+
+        if [[ -z "$val_a" && -z "$val_b" ]]; then
+            add_check SKIP "$label" "neither node is running"
+        elif [[ -z "$val_a" ]]; then
+            add_check WARN "$label" "cannot read ${left}"
+        elif [[ -z "$val_b" ]]; then
+            add_check WARN "$label" "cannot read ${right}"
+        elif [[ "$val_a" == "$val_b" ]]; then
+            add_check PASS "$label" "$val_a"
+        else
+            add_check FAIL "$label" "mismatch: $val_a vs $val_b"
+        fi
+    done
+}
+
+########################################
+# Reads a single parameter from a live node.
+# Globals:
+#  none
+# Arguments:
+#  $1 - node name (without leading slash)
+#  $2 - parameter name
+# Outputs:
+#  The parameter value, or nothing if the node or parameter is unavailable
+########################################
+get_ros_param(){
+    local node="$1"
+    local param="$2"
+    local output
+
+    # `ros2 param get` prints e.g. "Double value is: 0.5"
+    output=$(timeout 5 ros2 param get "/$node" "$param" 2>/dev/null || true)
+    [[ "$output" != *"value is:"* ]] && return 0
+
+    local value="${output##*value is: }"
+    echo "${value%%$'\n'*}"
+}
+
+########################################
+# Layer 6 - Checks the I2C bus and the PCA9685 PWM driver behind the
+# thrusters and rudder. Only meaningful on the SBC, so it is skipped rather
+# than failed when the i2c tooling is absent.
+# Globals:
+#  I2C_BUS, PCA9685_ADDRESS
+# Arguments:
+#  none
+# Outputs:
+#  One check for the bus, one for the PCA9685
+########################################
+check_hardware(){
+    if ! command -v i2cdetect >/dev/null 2>&1; then
+        add_check SKIP "i2c bus $I2C_BUS" "i2cdetect not available, expected on the SBC only"
+        add_check SKIP "PCA9685 at 0x$PCA9685_ADDRESS" "no i2c tooling"
+        return 0
+    fi
+
+    log "Scanning i2c bus $BLUE $I2C_BUS $PRIMARY..."
+    local scan
+    if ! scan=$(timeout 10 i2cdetect -y "$I2C_BUS" 2>&1); then
+        add_check FAIL "i2c bus $I2C_BUS" "bus not accessible: ${scan}"
+        add_check SKIP "PCA9685 at 0x$PCA9685_ADDRESS" "i2c bus unavailable"
+        return 0
+    fi
+    add_check PASS "i2c bus $I2C_BUS"
+
+    # Read the cell for the address rather than grepping the whole dump: the
+    # row labels themselves contain "40", so a substring match would report
+    # the PCA9685 as present on an empty bus
+    local cell
+    cell=$(i2c_address_cell "$PCA9685_ADDRESS" "$scan")
+
+    case "$cell" in
+        "$PCA9685_ADDRESS")
+            add_check PASS "PCA9685 at 0x$PCA9685_ADDRESS" ;;
+        "UU")
+            add_check WARN "PCA9685 at 0x$PCA9685_ADDRESS" "address is busy, a kernel driver already holds it" ;;
+        *)
+            add_check FAIL "PCA9685 at 0x$PCA9685_ADDRESS" "not detected on i2c bus $I2C_BUS" ;;
+    esac
+}
+
+########################################
+# Extracts the cell for one address out of an i2cdetect dump.
+# i2cdetect lays out 16 addresses per row, labelled by the high nibble, so
+# the cell for 0xNM is field M+2 of the row labelled "N0:" (field 1 is the
+# row label itself).
+# Globals:
+#  none
+# Arguments:
+#  $1 - two digit hex address, e.g. "40"
+#  $2 - i2cdetect output
+# Outputs:
+#  The cell contents: the address if present, "--" if absent, "UU" if busy
+########################################
+i2c_address_cell(){
+    local address="$1"
+    local scan="$2"
+    local row="${address:0:1}0:"
+    local column=$((16#${address:1:1} + 2))
+
+    echo "$scan" | awk -v row="$row" -v col="$column" '$1 == row {print $col}'
+}
+
+########################################
 # Checks MTU on physical interfaces and populates MTU_ISSUES for diagnose_problems output
 # Globals:
 #  MTU_ISSUES
@@ -660,6 +1411,26 @@ check_mtu(){
         mtu=$(ip link show "$iface" 2>/dev/null | grep -oP 'mtu \K[0-9]+')
         [[ -n "$mtu" && "$mtu" -lt "$required_mtu" ]] && MTU_ISSUES+=("$iface (MTU: $mtu, required: $required_mtu)")
     done < <(ip -o link show | awk '{print $2}' | tr -d ':' | grep -vE '^(lo|docker|br-|veth|tailscale)' || true)
+}
+
+########################################
+# Reports the outcome of check_mtu.
+# The ZED X streams over GMSL and needs jumbo frames, so an interface below
+# 9000 shows up as dropped frames rather than an obvious error.
+# Globals:
+#  MTU_ISSUES
+# Arguments:
+#  none
+########################################
+report_mtu(){
+    if [[ "${#MTU_ISSUES[@]}" -eq 0 ]]; then
+        add_check PASS "network: all physical interfaces at MTU >= 9000"
+        return 0
+    fi
+
+    for issue in "${MTU_ISSUES[@]}"; do
+        add_check WARN "network: $issue" "run 'sudo configMTU' to enable jumbo frames"
+    done
 }
 
 # <<< Diagnosis Functions
@@ -744,10 +1515,13 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Options:
-    -d, --wtf, --doctor   Run diagnostics to check for common issues
+    -d, --wtf, --doctor   Run diagnostics to check for common issues.
+                          Exits non-zero if any check fails.
+    -mtu, --mtu           Check network MTU only
+    --restart-zed         Attempt to bring the ZED daemon back online
     -c, --colcon          Build the colcon workspace (should be run inside container)
     -h, --help      Show help
-    -v, --verbose   Enable verbose mode
+    -v, --verbose   Enable verbose mode, shows passing checks too
     --dry-run       Do not execute changes
     --version       print version
 EOF
@@ -770,13 +1544,11 @@ parse_runtime_arguments() {
             -v|--verbose)
                 VERBOSE=1
                 log Yapping mode activiated!
-                SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
                 shift
                 ;;
             --dry-run)
                 DRY_RUN=1
                 log All bark no bite mode running!
-                SHIFT_ARGS_BY=$((SHIFT_ARGS_BY + 1))
                 shift
                 ;;
             -h|--help)
@@ -808,7 +1580,13 @@ parse_functional_arguments(){
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -d|--wtf|--doctor)
-            diagnose_problems
+            # Exit non-zero when a check failed so the doctor is usable from
+            # CI and from other scripts, not just by eye
+            diagnose_problems || exit 1
+            exit 0
+            ;;
+            --restart-zed)
+            check_zed_daemon || { error "Zed Daemon could not be brought online."; exit 1; }
             exit 0
             ;;
             -mtu|--mtu)
@@ -827,6 +1605,11 @@ parse_functional_arguments(){
             -c|--colcon)
             build_colcon "$2"
             exit 0
+            ;;
+            -v|--verbose|--dry-run)
+            # Already consumed by parse_runtime_arguments; skipped here so a
+            # runtime flag in any position does not look like a function
+            shift
             ;;
             *)
             error "Unknown function $1"
@@ -858,7 +1641,11 @@ main () {
     trap cleanup EXIT
 
     # Code for processes go after here
-    parse_functional_arguments "${@:SHIFT_ARGS_BY}"
+    # Pass every argument through: parse_functional_arguments skips the
+    # runtime flags itself, which works regardless of where they appear.
+    # Slicing by a count of leading runtime flags used to drop the function
+    # flag entirely when a runtime flag followed it (e.g. --doctor -v).
+    parse_functional_arguments "$@"
 }
 
 
